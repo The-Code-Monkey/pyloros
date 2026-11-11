@@ -63,7 +63,7 @@ export class ContentStore {
         }
 
         await mkdir(dirname(target), { recursive: true, mode: 0o755 });
-        await writeFile(target, entry.data, { mode: 0o644, flag: "wx" });
+        await writeFile(target, entry.data, { mode: entry.mode, flag: "wx" });
       }
 
       await mkdir(dirname(directory), { recursive: true });

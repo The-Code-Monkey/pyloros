@@ -19,7 +19,7 @@ try {
     throw new Error("dist/cli.js is missing; run npm run build first");
   }
 
-  for (const entry of ["package.json", "tsconfig.json", "src", "types"]) {
+  for (const entry of ["package.json", "tsconfig.json", "src"]) {
     await cp(join(root, entry), join(directory, entry), { recursive: true });
   }
 

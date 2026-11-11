@@ -82,3 +82,7 @@ Pyloros reads `package.json`, validates dependency specifiers as registry semver
 - The vendored semver license is ISC, not MIT as initially assumed. The vendoring note records the source version and the update procedure.
 - Treating optional dependencies as required is a deliberate simplification until the lockfile can carry edge optionality. It does not affect correctness, because platform filtering at materialization removes variants that cannot run.
 - The reference-counted soft-constraint mechanism is the part most likely to need revisiting if resolution performance becomes a concern.
+
+## Superseded
+
+The mandatory-engines rule in this spec was superseded by ADR 0004. A missing, empty, or unusable `engines.node` is now treated as compatible; only a declared range that excludes the exact running Node.js version is refused. The rest of this spec stands.

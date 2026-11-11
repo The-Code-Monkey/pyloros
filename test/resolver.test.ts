@@ -118,7 +118,7 @@ test("fails with the contract code when every version violates it", async () => 
   const registry = new FakeRegistry([
     packageDoc("a", [
       version("a", "1.0.0", { engines: { node: ">=99" } }),
-      version("a", "2.0.0", { engines: {} }),
+      version("a", "2.0.0", { engines: { node: ">=100" } }),
     ]),
   ]);
 
@@ -126,6 +126,21 @@ test("fails with the contract code when every version violates it", async () => 
     resolve(projectManifest({ a: "*" }), registry, { nodeVersion: NODE }),
     RuntimeContractError,
   );
+});
+
+test("installs packages that declare no engines.node", async () => {
+  const registry = new FakeRegistry([
+    packageDoc("a", [
+      version("a", "1.0.0", { engines: {} }),
+      version("a", "2.0.0", { engines: {} }),
+    ]),
+  ]);
+
+  const result = await resolve(projectManifest({ a: "*" }), registry, {
+    nodeVersion: NODE,
+  });
+
+  assert.deepEqual(identities(result.packages), ["a@2.0.0"]);
 });
 
 test("installs a required peer as a single version", async () => {

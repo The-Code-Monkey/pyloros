@@ -25,6 +25,23 @@ test("extracts regular files and directories", () => {
   assert.equal(new TextDecoder().decode(file.data), "hello");
 });
 
+test("preserves the executable bit and strips special bits", () => {
+  const entries = extractTar(
+    makeTar([
+      { name: "package/run.sh", data: "#!/bin/sh", mode: 0o4755 },
+      { name: "package/plain.js", data: "x", mode: 0o644 },
+    ]),
+  );
+
+  assert.deepEqual(
+    entries.map((entry) => [entry.path, entry.mode]),
+    [
+      ["package/run.sh", 0o755],
+      ["package/plain.js", 0o644],
+    ],
+  );
+});
+
 test("accepts an uncompressed tar archive", () => {
   const entries = extractTar(
     makeTar([{ name: "package/index.js", data: "plain" }], { gzip: false }),

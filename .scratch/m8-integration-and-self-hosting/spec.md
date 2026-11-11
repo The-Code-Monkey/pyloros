@@ -84,3 +84,11 @@ The integration suite installs the real-world fixture from the public npm regist
 - Vendoring Node type declarations is a self-hosting measure, not a runtime dependency. It keeps the resolved tree contract-compliant while preserving strict type checking.
 - TypeScript 5.9 supports the import-extension rewriting already used by the project, so the downgrade did not change the source contract.
 - The self-host check is a statement about the tool, not about day-to-day repository setup. The repository still uses npm for its own bootstrap.
+
+## Superseded
+
+The vendored Node type declarations and the TypeScript 5.9.3 pin were reversed after ADR 0004. The `types/` directory is removed, `@types/node` is a development dependency again, TypeScript is 7.0.2, and the self-host check copies no vendored declarations. The integration suite, CI matrix, development-dependency support, and self-host check remain.
+
+## Follow-up
+
+Self-hosting TypeScript 7 needs executable native artifacts. Tar extraction now reads the archive mode, preserves only the executable bit by normalizing files to `0755` or `0644`, and strips setuid, setgid, and sticky bits. Materialization preserves that mode on the copy fallback. This keeps prebuilt Platform Variants usable without trusting arbitrary archive permission bits.

@@ -366,9 +366,19 @@ async function candidatesFor(
   }
 
   if (contractPassing.length === 0) {
+    if (contractFailures.length > 0) {
+      return {
+        ok: false,
+        failure: { kind: "contract", message: contractMessage(contractFailures) },
+      };
+    }
+
     return {
       ok: false,
-      failure: { kind: "contract", message: contractMessage(contractFailures) },
+      failure: {
+        kind: "resolution",
+        message: conflictMessage(name, constraints, packument),
+      },
     };
   }
 

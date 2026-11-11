@@ -1,7 +1,7 @@
 import semver from "../core/semver.ts";
 import type { VersionManifest } from "../registry/packument.ts";
 
-export type ContractReason = "missing-engines" | "invalid-range" | "excluded-version";
+export type ContractReason = "excluded-version";
 
 export interface ContractViolation {
   package: string;
@@ -19,22 +19,11 @@ export function checkRuntimeContract(
   const range = manifest.engines?.node;
 
   if (typeof range !== "string" || range.trim().length === 0) {
-    return {
-      package: name,
-      version: manifest.version,
-      nodeVersion,
-      reason: "missing-engines",
-    };
+    return undefined;
   }
 
   if (semver.validRange(range) === null) {
-    return {
-      package: name,
-      version: manifest.version,
-      nodeVersion,
-      reason: "invalid-range",
-      range,
-    };
+    return undefined;
   }
 
   if (!semver.satisfies(nodeVersion, range, { includePrerelease: true })) {
@@ -53,12 +42,5 @@ export function checkRuntimeContract(
 export function describeViolation(violation: ContractViolation): string {
   const identity = `${violation.package}@${violation.version}`;
 
-  switch (violation.reason) {
-    case "missing-engines":
-      return `${identity} declares no engines.node`;
-    case "invalid-range":
-      return `${identity} declares an invalid engines.node range: ${JSON.stringify(violation.range)}`;
-    case "excluded-version":
-      return `${identity} requires Node ${violation.range}, not ${violation.nodeVersion}`;
-  }
+  return `${identity} requires Node ${violation.range}, not ${violation.nodeVersion}`;
 }

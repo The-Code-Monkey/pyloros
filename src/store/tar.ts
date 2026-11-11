@@ -2,8 +2,8 @@ import { gunzipSync } from "node:zlib";
 import { TarError } from "../core/errors.ts";
 
 export type TarEntry =
-  | { type: "file"; path: string; data: Uint8Array }
-  | { type: "dir"; path: string };
+  | { type: "file"; path: string; data: Uint8Array; mode: number }
+  | { type: "dir"; path: string; mode: number };
 
 const BLOCK = 512;
 const MAX_ENTRIES = 200_000;
@@ -205,6 +205,8 @@ export function extractTar(input: Uint8Array): TarEntry[] {
 
     const typeflag = String.fromCharCode(header[156] ?? 0);
     const size = readOctal(header, 124, 12, "size");
+    const archiveMode = readOctal(header, 100, 8, "mode");
+    const mode = (archiveMode & 0o111) === 0 ? 0o644 : 0o755;
     const bodyStart = offset + BLOCK;
     const bodyEnd = bodyStart + size;
 
@@ -262,7 +264,7 @@ export function extractTar(input: Uint8Array): TarEntry[] {
       }
 
       seen.add(path);
-      entries.push({ type: "file", path, data: body.slice() });
+      entries.push({ type: "file", path, data: body.slice(), mode });
       continue;
     }
 
@@ -274,7 +276,7 @@ export function extractTar(input: Uint8Array): TarEntry[] {
       }
 
       seen.add(path);
-      entries.push({ type: "dir", path });
+      entries.push({ type: "dir", path, mode: 0o755 });
       continue;
     }
 

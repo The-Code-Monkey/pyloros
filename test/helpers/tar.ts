@@ -5,6 +5,7 @@ export interface TarInput {
   data?: string | Uint8Array;
   type?: "0" | "5" | "2";
   linkname?: string;
+  mode?: number;
 }
 
 const BLOCK = 512;
@@ -39,7 +40,7 @@ export function makeTar(
     const header = Buffer.alloc(BLOCK);
 
     writeString(header, input.name, 0, 100);
-    writeOctal(header, type === "5" ? 0o755 : 0o644, 100, 8);
+    writeOctal(header, input.mode ?? (type === "5" ? 0o755 : 0o644), 100, 8);
     writeOctal(header, 0, 108, 8);
     writeOctal(header, 0, 116, 8);
     writeOctal(header, body.length, 124, 12);

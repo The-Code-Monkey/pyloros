@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import {
+  chmod,
   copyFile,
   link,
   mkdir,
@@ -135,6 +136,7 @@ async function linkFile(source: string, target: string): Promise<void> {
   }
 
   await copyFile(source, target, constants.COPYFILE_FICLONE);
+  await chmod(target, (await stat(source)).mode & 0o777);
 }
 
 async function copyTree(source: string, target: string): Promise<void> {
