@@ -1,6 +1,6 @@
 # A Tree Transaction seam inside materialize
 
-Status: ready-for-agent
+Status: implemented
 Recorded: 2026-11-11
 
 ## Problem Statement
