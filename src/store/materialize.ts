@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import {
   chmod,
@@ -6,8 +5,6 @@ import {
   link,
   mkdir,
   readdir,
-  rename,
-  rm,
   stat,
   writeFile,
 } from "node:fs/promises";
@@ -65,17 +62,6 @@ const LINK_FALLBACK_CODES = new Set([
 ]);
 
 const STATE_DIRECTORY = ".pyloros";
-const STAGE_PREFIX = ".pyloros-stage-";
-const PREVIOUS_PREFIX = ".pyloros-previous-";
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function manifestFromLock(pkg: LockfilePackage): VersionManifest {
   return {
@@ -168,78 +154,6 @@ async function packageRoot(directory: string): Promise<string> {
   return directory;
 }
 
-async function swapIntoPlace(
-  projectDirectory: string,
-  staging: string,
-): Promise<void> {
-  const target = join(projectDirectory, "node_modules");
-  const previous = join(
-    projectDirectory,
-    `${PREVIOUS_PREFIX}${process.pid}-${randomUUID()}`,
-  );
-  let moved = false;
-
-  try {
-    if (await exists(target)) {
-      await rename(target, previous);
-      moved = true;
-    }
-
-    await rename(staging, target);
-  } catch (error) {
-    if (moved) {
-      await rename(previous, target).catch(() => undefined);
-    }
-
-    throw error;
-  }
-
-  if (moved) {
-    await rm(previous, { recursive: true, force: true });
-  }
-}
-
-async function restoreNewestPrevious(projectDirectory: string): Promise<void> {
-  if (await exists(join(projectDirectory, "node_modules"))) {
-    return;
-  }
-
-  const candidates = (await readdir(projectDirectory))
-    .filter((name) => name.startsWith(PREVIOUS_PREFIX))
-    .map((name) => join(projectDirectory, name));
-
-  if (candidates.length === 0) {
-    return;
-  }
-
-  const ranked: { path: string; modified: number }[] = [];
-
-  for (const path of candidates) {
-    try {
-      ranked.push({ path, modified: (await stat(path)).mtimeMs });
-    } catch {
-      continue;
-    }
-  }
-
-  ranked.sort((left, right) => right.modified - left.modified);
-  const newest = ranked[0];
-
-  if (newest !== undefined) {
-    await rename(newest.path, join(projectDirectory, "node_modules"));
-  }
-}
-
-export async function recoverInterrupted(projectDirectory: string): Promise<void> {
-  await restoreNewestPrevious(projectDirectory);
-
-  for (const name of await readdir(projectDirectory)) {
-    if (name.startsWith(STAGE_PREFIX)) {
-      await rm(join(projectDirectory, name), { recursive: true, force: true });
-    }
-  }
-}
-
 export async function materialize(
   options: MaterializeOptions,
 ): Promise<MaterializeResult> {
@@ -262,14 +176,8 @@ export async function materialize(
     .filter((pkg) => !matchesPlatform(pkg, options.platform))
     .map((pkg) => pkg.name);
 
-  await recoverInterrupted(options.projectDirectory);
-
-  const staging = join(
-    options.projectDirectory,
-    `${STAGE_PREFIX}${process.pid}-${randomUUID()}`,
-  );
-
-  await mkdir(staging, { recursive: true });
+  const tree = await openTree(options.projectDirectory);
+  const staging = tree.staging;
 
   try {
     const extracted = await mapLimit(
@@ -325,7 +233,7 @@ export async function materialize(
       { mode: 0o644 },
     );
 
-    await swapIntoPlace(options.projectDirectory, staging);
+    await tree.commit();
 
     return {
       directory: join(options.projectDirectory, "node_modules"),
@@ -334,7 +242,7 @@ export async function materialize(
       gate,
     };
   } catch (error) {
-    await rm(staging, { recursive: true, force: true });
+    await tree.abort();
     throw error;
   }
 }
