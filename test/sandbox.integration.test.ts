@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { createLockfile } from "../src/core/lockfile.ts";
 import { parseProjectManifest } from "../src/core/manifest.ts";
-import type { ProvenanceVerifier } from "../src/gate/types.ts";
 import { BubblewrapSandbox } from "../src/gate/sandbox.ts";
 import { sha512Sri } from "../src/registry/integrity.ts";
 import type { VersionManifest } from "../src/registry/packument.ts";
@@ -13,20 +12,8 @@ import type { Resolution } from "../src/resolve/resolver.ts";
 import { ContentStore } from "../src/store/cas.ts";
 import { materialize } from "../src/store/materialize.ts";
 import { FIXED_SNAPSHOT } from "./helpers/advisories.ts";
+import { FakeProvenance, PLATFORM, VERIFIED } from "./helpers/install.ts";
 import { makeTar } from "./helpers/tar.ts";
-
-const PLATFORM = { os: "linux", cpu: "x64", libc: "glibc" } as const;
-
-class VerifiedProvenance implements ProvenanceVerifier {
-  async verify() {
-    return {
-      status: "verified" as const,
-      attestationDigest: "digest",
-      subjectIntegrity: "sha512-subject",
-      verifiedAt: FIXED_SNAPSHOT,
-    };
-  }
-}
 
 class FakeTarballs {
   readonly data: Uint8Array;
@@ -91,7 +78,7 @@ test(
           pins: {},
           allowAdvisories: [],
         },
-        provenance: new VerifiedProvenance(),
+        provenance: new FakeProvenance(VERIFIED),
         sandbox: new BubblewrapSandbox(),
         scriptTimeoutMs: 30_000,
         concurrency: 4,

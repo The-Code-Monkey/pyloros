@@ -13,37 +13,21 @@ import {
 } from "../src/core/lockfile.ts";
 import {
   applyDependencyChange,
-  type InstallRunner,
 } from "../src/install/dependency-change.ts";
 import { readRawManifest } from "../src/install/manifest-edit.ts";
 import type {
   InstallIntent,
   InstallResult,
-  Registry,
-} from "../src/install/installer.ts";
-import type { Packument, VersionManifest } from "../src/registry/packument.ts";
+  InstallSession,
+} from "../src/install/install-session.ts";
 import { FIXED_SNAPSHOT } from "./helpers/advisories.ts";
+import { FakeRegistry } from "./helpers/install.ts";
+import { version } from "./helpers/registry.ts";
 
-class FakeRegistry implements Registry {
-  readonly #tags: Record<string, Record<string, string>>;
-
-  constructor(tags: Record<string, Record<string, string>>) {
-    this.#tags = tags;
-  }
-
-  async getPackument(name: string): Promise<Packument> {
-    const tags = this.#tags[name];
-
-    if (tags === undefined) {
-      throw new Error(`no package ${name}`);
-    }
-
-    return { name, versions: {}, "dist-tags": tags };
-  }
-
-  async getTarball(_manifest: VersionManifest): Promise<Uint8Array> {
-    throw new Error("unused");
-  }
+function registryWithLatest(name: string, latest: string): FakeRegistry {
+  return new FakeRegistry([
+    { name, version: latest, manifest: version(name, latest) },
+  ]);
 }
 
 function lockfile(
@@ -97,7 +81,7 @@ interface Recorder {
 function successfulInstall(
   packages: Record<string, string>,
   recorder: Recorder = { calls: 0 },
-): InstallRunner {
+): InstallSession["install"] {
   return async (intent) => {
     recorder.calls += 1;
     recorder.intent = intent;
@@ -139,7 +123,7 @@ test("add saves an exact tag version and syncs the lockfile root", async () => {
       directory,
       { kind: "add", spec: "a", saveMode: "exact" },
       {
-        registry: new FakeRegistry({ a: { latest: "1.2.3" } }),
+        registry: registryWithLatest("a", "1.2.3"),
         install: successfulInstall({ a: "1.2.3" }, recorder),
       },
     );
@@ -168,7 +152,7 @@ test("add --range saves a caret range", async () => {
       directory,
       { kind: "add", spec: "a", saveMode: "caret" },
       {
-        registry: new FakeRegistry({ a: { latest: "1.2.3" } }),
+        registry: registryWithLatest("a", "1.2.3"),
         install: successfulInstall({ a: "1.2.3" }),
       },
     );
@@ -198,7 +182,7 @@ test("add restores the manifest when install fails", async () => {
         directory,
         { kind: "add", spec: "a", saveMode: "exact" },
         {
-          registry: new FakeRegistry({ a: { latest: "1.2.3" } }),
+          registry: registryWithLatest("a", "1.2.3"),
           install: async () => {
             throw new Error("install failed");
           },

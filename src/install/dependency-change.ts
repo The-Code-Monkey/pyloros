@@ -6,11 +6,12 @@ import {
   type Lockfile,
 } from "../core/lockfile.ts";
 import { parseProjectManifest } from "../core/manifest.ts";
-import type {
-  InstallIntent,
-  InstallResult,
-  Registry,
-} from "./installer.ts";
+import {
+  installIntentFor,
+  type InstallResult,
+  type InstallSession,
+  type Registry,
+} from "./install-session.ts";
 import {
   readRawManifest,
   removeDependency,
@@ -26,11 +27,9 @@ export type DependencyChange =
   | { kind: "remove"; name: string }
   | { kind: "update"; name?: string };
 
-export type InstallRunner = (intent: InstallIntent) => Promise<InstallResult>;
-
 export interface DependencyChangeOptions {
   registry?: Registry;
-  install: InstallRunner;
+  install: InstallSession["install"];
 }
 
 export interface DependencyChangeDiff {
@@ -88,20 +87,17 @@ function preferredVersions(
   return preferred;
 }
 
-function intentFor(
+async function withManifestRollback<T>(
   directory: string,
-  existing: Lockfile | undefined,
-  preferred?: Readonly<Record<string, string>>,
-): InstallIntent {
-  if (existing === undefined) {
-    return preferred === undefined
-      ? { kind: "resolve", directory }
-      : { kind: "resolve", directory, preferred };
+  snapshot: Record<string, unknown>,
+  run: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    await writeRawManifest(directory, snapshot);
+    throw error;
   }
-
-  return preferred === undefined
-    ? { kind: "re-resolve", directory }
-    : { kind: "re-resolve", directory, preferred };
 }
 
 async function provisionalRange(
@@ -146,7 +142,7 @@ export async function applyDependencyChange(
   const install = options.install;
   const original = await readRawManifest(directory);
   const snapshot = structuredClone(original);
-  parseProjectManifest(directory, structuredClone(original));
+  parseProjectManifest(directory, original);
   const existing = await readLockfile(directory);
 
   if (change.kind === "add") {
@@ -162,9 +158,9 @@ export async function applyDependencyChange(
     setDependency(original, provisional.name, provisional.range);
     await writeRawManifest(directory, original);
 
-    try {
+    return withManifestRollback(directory, snapshot, async () => {
       const result = await install(
-        intentFor(directory, existing, preferred),
+        installIntentFor(directory, existing, "re-resolve", preferred),
       );
       const chosen = result.lockfile.packages[provisional.name];
 
@@ -186,7 +182,7 @@ export async function applyDependencyChange(
       }
 
       return {
-        kind: "add",
+        kind: "add" as const,
         name: provisional.name,
         version: chosen.version,
         saved,
@@ -195,10 +191,7 @@ export async function applyDependencyChange(
         lockfile: result.lockfile,
         install: result,
       };
-    } catch (error) {
-      await writeRawManifest(directory, snapshot);
-      throw error;
-    }
+    });
   }
 
   if (change.kind === "remove") {
@@ -211,13 +204,13 @@ export async function applyDependencyChange(
     const preferred = preferredVersions(existing, [change.name]);
     await writeRawManifest(directory, original);
 
-    try {
+    return withManifestRollback(directory, snapshot, async () => {
       const result = await install(
-        intentFor(directory, existing, preferred),
+        installIntentFor(directory, existing, "re-resolve", preferred),
       );
 
       return {
-        kind: "remove",
+        kind: "remove" as const,
         name: change.name,
         version: null,
         saved: null,
@@ -226,10 +219,7 @@ export async function applyDependencyChange(
         lockfile: result.lockfile,
         install: result,
       };
-    } catch (error) {
-      await writeRawManifest(directory, snapshot);
-      throw error;
-    }
+    });
   }
 
   if (existing === undefined) {
@@ -249,9 +239,10 @@ export async function applyDependencyChange(
   }
 
   const result = await install(
-    intentFor(
+    installIntentFor(
       directory,
       existing,
+      "re-resolve",
       name === undefined ? undefined : preferredVersions(existing, [name]),
     ),
   );

@@ -42,10 +42,10 @@ export interface MaterializeOptions {
   concurrency: number;
   now: () => Date;
   policy: PylorosPolicy;
-  provenance?: ProvenanceVerifier;
-  sandbox?: SandboxRunner;
+  provenance: ProvenanceVerifier;
+  sandbox: SandboxRunner;
   expectedProvenance?: ReadonlyMap<string, LockfileProvenance>;
-  scriptTimeoutMs?: number;
+  scriptTimeoutMs: number;
 }
 
 export interface MaterializeResult {
@@ -243,9 +243,6 @@ export async function recoverInterrupted(projectDirectory: string): Promise<void
 export async function materialize(
   options: MaterializeOptions,
 ): Promise<MaterializeResult> {
-  const platform = options.platform;
-  const store = options.store;
-  const now = options.now;
   const packages = Object.values(options.lockfile.packages).sort((left, right) =>
     left.name.localeCompare(right.name),
   );
@@ -253,16 +250,16 @@ export async function materialize(
   for (const name of Object.keys(options.lockfile.root.dependencies)) {
     const pkg = options.lockfile.packages[name];
 
-    if (pkg !== undefined && !matchesPlatform(pkg, platform)) {
+    if (pkg !== undefined && !matchesPlatform(pkg, options.platform)) {
       throw new PlatformError(
-        `root dependency ${name}@${pkg.version} does not support ${platform.os}/${platform.cpu}`,
+        `root dependency ${name}@${pkg.version} does not support ${options.platform.os}/${options.platform.cpu}`,
       );
     }
   }
 
-  const selected = packages.filter((pkg) => matchesPlatform(pkg, platform));
+  const selected = packages.filter((pkg) => matchesPlatform(pkg, options.platform));
   const skipped = packages
-    .filter((pkg) => !matchesPlatform(pkg, platform))
+    .filter((pkg) => !matchesPlatform(pkg, options.platform))
     .map((pkg) => pkg.name);
 
   await recoverInterrupted(options.projectDirectory);
@@ -280,7 +277,7 @@ export async function materialize(
       options.concurrency,
       async (pkg) => {
         const data = await options.registry.getTarball(manifestFromLock(pkg));
-        const entry = await store.putTarball(data);
+        const entry = await options.store.putTarball(data);
         return { pkg, directory: await packageRoot(entry.directory), data };
       },
     );
@@ -301,17 +298,13 @@ export async function materialize(
       packages: selected,
       directories,
       tarballs,
-      storeRoot: store.root,
-      ...(options.provenance === undefined
-        ? {}
-        : { provenance: options.provenance }),
-      ...(options.sandbox === undefined ? {} : { sandbox: options.sandbox }),
+      storeRoot: options.store.root,
+      provenance: options.provenance,
+      sandbox: options.sandbox,
       ...(options.expectedProvenance === undefined
         ? {}
         : { expectedProvenance: options.expectedProvenance }),
-      ...(options.scriptTimeoutMs === undefined
-        ? {}
-        : { timeoutMs: options.scriptTimeoutMs }),
+      timeoutMs: options.scriptTimeoutMs,
     });
 
     const stateDirectory = join(staging, STATE_DIRECTORY);
@@ -322,7 +315,7 @@ export async function materialize(
         {
           tool: options.lockfile.tool,
           node: options.lockfile.node,
-          installedAt: now().toISOString(),
+          installedAt: options.now().toISOString(),
           packages: selected.map((pkg) => `${pkg.name}@${pkg.version}`),
           skipped,
         },

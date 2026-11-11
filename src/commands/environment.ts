@@ -3,27 +3,30 @@ import { currentNodeAbi, currentNodeVersion } from "../core/tool.ts";
 import { CosignProvenanceVerifier } from "../gate/provenance.ts";
 import { BubblewrapSandbox } from "../gate/sandbox.ts";
 import {
-  createInstaller,
-  type Installer,
-  type InstallerEnvironment,
+  createInstallSession,
+  type InstallSession,
+  type InstallSessionEnvironment,
   type Registry,
-} from "../install/installer.ts";
+} from "../install/install-session.ts";
 import { RegistryClient } from "../registry/client.ts";
 import type { FallbackSelector } from "../resolve/resolver.ts";
 import { ContentStore } from "../store/cas.ts";
 import { currentPlatform } from "../store/platform.ts";
 
-export interface CommandInstaller {
-  installer: Installer;
+export const DEFAULT_SCRIPT_TIMEOUT_MS = 5 * 60 * 1000;
+
+export interface CommandInstallSession {
+  session: InstallSession;
   registry: Registry;
+  environment: InstallSessionEnvironment;
 }
 
-export function createCommandInstaller(options: {
+export function createCommandInstallSession(options: {
   allowAdvisories: boolean;
   fallback?: FallbackSelector;
-}): CommandInstaller {
+}): CommandInstallSession {
   const registry = new RegistryClient();
-  const environment: InstallerEnvironment = {
+  const environment: InstallSessionEnvironment = {
     registry,
     advisoryProvider: new AdvisoryService(),
     provenance: new CosignProvenanceVerifier(),
@@ -32,11 +35,16 @@ export function createCommandInstaller(options: {
     platform: currentPlatform(),
     clock: () => new Date(),
     concurrency: 8,
+    scriptTimeoutMs: DEFAULT_SCRIPT_TIMEOUT_MS,
     allowAdvisories: options.allowAdvisories,
     ...(options.fallback === undefined ? {} : { fallback: options.fallback }),
     nodeVersion: currentNodeVersion(),
     nodeAbi: currentNodeAbi(),
   };
 
-  return { installer: createInstaller(environment), registry };
+  return {
+    session: createInstallSession(environment),
+    registry,
+    environment,
+  };
 }

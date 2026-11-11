@@ -1,7 +1,7 @@
 import { ExitCode } from "../core/exit-codes.ts";
 import { UsageError } from "../core/errors.ts";
 import { applyDependencyChange } from "../install/dependency-change.ts";
-import { createCommandInstaller } from "./environment.ts";
+import { createCommandInstallSession } from "./environment.ts";
 import { parseFlags, printJson, selectorFor } from "./shared.ts";
 
 export async function addCommand(
@@ -19,7 +19,7 @@ export async function addCommand(
   }
 
   const allowAdvisories = flags.booleans.has("--allow-advisories");
-  const { installer, registry } = createCommandInstaller({
+  const { session, registry } = createCommandInstallSession({
     allowAdvisories,
     fallback: selectorFor({
       select: flags.values.get("--select"),
@@ -33,7 +33,7 @@ export async function addCommand(
       spec: flags.positionals[0] as string,
       saveMode: flags.booleans.has("--range") ? "caret" : "exact",
     },
-    { registry, install: (intent) => installer.install(intent) },
+    { registry, install: session.install },
   );
 
   if (json) {
