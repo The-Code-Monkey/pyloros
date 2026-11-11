@@ -15,60 +15,27 @@ import {
   type AdvisorySnapshot,
   type AdvisorySource,
 } from "../advisories/types.ts";
-import {
-  checkRuntimeContract,
-  describeViolation,
-  type ContractViolation,
-} from "./contract.ts";
+import { selectCandidates } from "./candidates.ts";
+import type { CandidateFailure } from "./candidates.ts";
+import type {
+  FallbackSelector,
+  OverridePin,
+  Resolution,
+  ResolvedPackage,
+} from "./types.ts";
+
+export type {
+  FallbackCandidate,
+  FallbackChoice,
+  FallbackRequest,
+  FallbackSelector,
+  OverridePin,
+  Resolution,
+  ResolvedPackage,
+} from "./types.ts";
 
 export interface PackumentProvider {
   getPackument(name: string): Promise<Packument>;
-}
-
-export interface ResolvedPackage {
-  name: string;
-  version: string;
-  manifest: VersionManifest;
-}
-
-export interface OverridePin {
-  name: string;
-  version: string;
-  reason: string;
-  createdAt: string;
-  advisoryIds: string[];
-  constraints: string[];
-}
-
-export interface FallbackCandidate {
-  version: string;
-  advisories: readonly Advisory[];
-  satisfiesConstraints: boolean;
-  deprecated?: string;
-}
-
-export interface FallbackRequest {
-  name: string;
-  nodeVersion: string;
-  constraints: readonly string[];
-  candidates: readonly FallbackCandidate[];
-  allowAdvisories: boolean;
-}
-
-export interface FallbackChoice {
-  version: string;
-  reason: string;
-}
-
-export type FallbackSelector = (
-  request: FallbackRequest,
-) => Promise<FallbackChoice | undefined>;
-
-export interface Resolution {
-  nodeVersion: string;
-  packages: ResolvedPackage[];
-  advisories: AdvisorySnapshot;
-  overrides: OverridePin[];
 }
 
 export interface ResolveOptions {
@@ -97,19 +64,9 @@ interface State {
   steps: number;
 }
 
-interface Failure {
-  kind: "resolution" | "contract" | "advisory";
-  message: string;
-}
-
-type CandidateResult =
-  | { ok: true; candidates: VersionManifest[] }
-  | { ok: true; override: { manifest: VersionManifest; pin: OverridePin } }
-  | { ok: false; failure: Failure };
-
 type SolveResult =
   | { ok: true; state: State }
-  | { ok: false; failure: Failure };
+  | { ok: false; failure: CandidateFailure };
 
 interface Context {
   nodeVersion: string;
@@ -172,7 +129,7 @@ function addConstraint(
   state: State,
   name: string,
   constraint: Constraint,
-): Failure | undefined {
+): CandidateFailure | undefined {
   let list = state.constraints.get(name);
 
   if (list === undefined) {
@@ -203,7 +160,7 @@ function applyEdges(
   state: State,
   name: string,
   manifest: VersionManifest,
-): Failure | undefined {
+): CandidateFailure | undefined {
   const from = `${name}@${manifest.version}`;
 
   for (const table of [manifest.dependencies, manifest.optionalDependencies]) {
@@ -255,263 +212,6 @@ function applyEdges(
   return undefined;
 }
 
-function preferLocked(
-  candidates: VersionManifest[],
-  preferred: string | undefined,
-): void {
-  if (preferred === undefined) {
-    return;
-  }
-
-  const index = candidates.findIndex(
-    (candidate) => candidate.version === preferred,
-  );
-
-  if (index > 0) {
-    const [candidate] = candidates.splice(index, 1);
-
-    if (candidate !== undefined) {
-      candidates.unshift(candidate);
-    }
-  }
-}
-
-function conflictMessage(
-  name: string,
-  constraints: readonly Constraint[],
-  packument: Packument,
-): string {
-  const sources = constraints
-    .map((constraint) => `${constraint.range} (${constraint.from})`)
-    .join(", ");
-  const available = Object.keys(packument.versions).join(", ");
-
-  return `cannot select one version of ${name} satisfying ${sources}; available versions: ${available}`;
-}
-
-function contractMessage(violations: readonly ContractViolation[]): string {
-  const details = violations.slice(0, 5).map(describeViolation).join("; ");
-  const more = violations.length > 5 ? `; and ${violations.length - 5} more` : "";
-  return `no version satisfies the Runtime Contract: ${details}${more}`;
-}
-
-function advisoryMessage(
-  name: string,
-  candidates: readonly FallbackCandidate[],
-): string {
-  const affected = candidates.filter(
-    (candidate) => candidate.advisories.length > 0,
-  );
-
-  if (affected.length === 0) {
-    return `no clean version of ${name} is available`;
-  }
-
-  const details = affected
-    .slice(0, 5)
-    .map(
-      (candidate) =>
-        `${name}@${candidate.version}: ${candidate.advisories
-          .map((advisory) => advisory.id)
-          .join(", ")}`,
-    )
-    .join("; ");
-
-  return `every candidate version of ${name} has an open security advisory: ${details}`;
-}
-
-function fallbackConstraints(constraints: readonly Constraint[]): string[] {
-  return constraints.map(
-    (constraint) => `${constraint.range} (${constraint.from})`,
-  );
-}
-
-async function candidatesFor(
-  state: State,
-  name: string,
-  context: Context,
-): Promise<CandidateResult> {
-  const packument = await context.getPackument(name);
-  const constraints = state.constraints.get(name) ?? [];
-  const contractPassing: VersionManifest[] = [];
-  const contractFailures: ContractViolation[] = [];
-  const rangeSatisfying: VersionManifest[] = [];
-
-  for (const manifest of Object.values(packument.versions)) {
-    if (semver.valid(manifest.version) === null) {
-      continue;
-    }
-
-    const violation = checkRuntimeContract(name, manifest, context.nodeVersion);
-
-    if (violation !== undefined) {
-      contractFailures.push(violation);
-      continue;
-    }
-
-    contractPassing.push(manifest);
-
-    let rangeSatisfied = true;
-
-    for (const constraint of constraints) {
-      if (!satisfies(manifest.version, constraint.range)) {
-        rangeSatisfied = false;
-        break;
-      }
-    }
-
-    if (rangeSatisfied) {
-      rangeSatisfying.push(manifest);
-    }
-  }
-
-  if (contractPassing.length === 0) {
-    if (contractFailures.length > 0) {
-      return {
-        ok: false,
-        failure: { kind: "contract", message: contractMessage(contractFailures) },
-      };
-    }
-
-    return {
-      ok: false,
-      failure: {
-        kind: "resolution",
-        message: conflictMessage(name, constraints, packument),
-      },
-    };
-  }
-
-  const rangeAdvisories = await context.queryAdvisories(
-    rangeSatisfying.map((manifest) => ({ name, version: manifest.version })),
-  );
-  const rangeAdvisoriesFor = (manifest: VersionManifest): readonly Advisory[] =>
-    rangeAdvisories.get(advisoryKey(name, manifest.version)) ?? [];
-
-  const cleanRange = rangeSatisfying.filter(
-    (manifest) => rangeAdvisoriesFor(manifest).length === 0,
-  );
-
-  if (cleanRange.length > 0) {
-    cleanRange.sort((left, right) => semver.rcompare(left.version, right.version));
-    preferLocked(cleanRange, context.preferred?.[name]);
-    return { ok: true, candidates: cleanRange };
-  }
-
-  const rangeVersions = new Set(rangeSatisfying.map((manifest) => manifest.version));
-
-  if (context.fallback === undefined) {
-    if (rangeSatisfying.length > 0) {
-      const affected: FallbackCandidate[] = [...rangeSatisfying]
-        .sort((left, right) => semver.rcompare(left.version, right.version))
-        .map((manifest) => ({
-          version: manifest.version,
-          advisories: rangeAdvisoriesFor(manifest),
-          satisfiesConstraints: true,
-        }));
-
-      return {
-        ok: false,
-        failure: {
-          kind: "advisory",
-          message: advisoryMessage(name, affected),
-        },
-      };
-    }
-
-    return {
-      ok: false,
-      failure: {
-        kind: "resolution",
-        message: conflictMessage(name, constraints, packument),
-      },
-    };
-  }
-
-  const allAdvisories = await context.queryAdvisories(
-    contractPassing.map((manifest) => ({ name, version: manifest.version })),
-  );
-  const advisoriesFor = (manifest: VersionManifest): readonly Advisory[] =>
-    allAdvisories.get(advisoryKey(name, manifest.version)) ?? [];
-  const fallbackCandidates: FallbackCandidate[] = [...contractPassing]
-    .sort((left, right) => semver.rcompare(left.version, right.version))
-    .map((manifest) => ({
-      version: manifest.version,
-      advisories: advisoriesFor(manifest),
-      satisfiesConstraints: rangeVersions.has(manifest.version),
-      ...(manifest.deprecated === undefined
-        ? {}
-        : { deprecated: manifest.deprecated }),
-    }));
-
-  const choice = await context.fallback({
-    name,
-    nodeVersion: context.nodeVersion,
-    constraints: fallbackConstraints(constraints),
-    candidates: fallbackCandidates,
-    allowAdvisories: context.allowAdvisories,
-  });
-
-  if (choice === undefined) {
-    return {
-      ok: false,
-      failure: {
-        kind: rangeSatisfying.length > 0 ? "advisory" : "resolution",
-        message: `fallback selection for ${name} was aborted`,
-      },
-    };
-  }
-
-  const reason = choice.reason.trim();
-
-  if (reason.length === 0) {
-    return {
-      ok: false,
-      failure: {
-        kind: "resolution",
-        message: `the override for ${name}@${choice.version} needs a reason`,
-      },
-    };
-  }
-
-  const chosen = contractPassing.find(
-    (manifest) => manifest.version === choice.version,
-  );
-
-  if (chosen === undefined) {
-    return {
-      ok: false,
-      failure: {
-        kind: "resolution",
-        message: `${name}@${choice.version} is not an available, contract-compatible version`,
-      },
-    };
-  }
-
-  const chosenAdvisories = advisoriesFor(chosen);
-
-  if (chosenAdvisories.length > 0 && !context.allowAdvisories) {
-    return {
-      ok: false,
-      failure: {
-        kind: "advisory",
-        message: `refusing ${name}@${chosen.version} because it has open advisories; pass --allow-advisories to accept it`,
-      },
-    };
-  }
-
-  const pin: OverridePin = {
-    name,
-    version: chosen.version,
-    reason,
-    createdAt: context.now().toISOString(),
-    advisoryIds: chosenAdvisories.map((advisory) => advisory.id),
-    constraints: fallbackConstraints(constraints),
-  };
-
-  return { ok: true, override: { manifest: chosen, pin } };
-}
-
 async function solve(state: State, context: Context): Promise<SolveResult> {
   if (state.steps > context.maxSelections) {
     return {
@@ -531,19 +231,30 @@ async function solve(state: State, context: Context): Promise<SolveResult> {
     return { ok: true, state };
   }
 
-  const result = await candidatesFor(state, next, context);
+  const constraints = state.constraints.get(next) ?? [];
+  const packument = await context.getPackument(next);
+  const outcome = await selectCandidates(next, packument, constraints, {
+    nodeVersion: context.nodeVersion,
+    allowAdvisories: context.allowAdvisories,
+    now: context.now,
+    ...(context.preferred === undefined
+      ? {}
+      : { preferred: context.preferred }),
+    ...(context.fallback === undefined ? {} : { fallback: context.fallback }),
+    queryAdvisories: context.queryAdvisories,
+  });
 
-  if (!result.ok) {
-    return result;
+  if (outcome.kind === "failure") {
+    return { ok: false, failure: outcome.failure };
   }
 
-  if ("override" in result) {
+  if (outcome.kind === "override") {
     const branch = cloneState(state);
     branch.steps += 1;
-    branch.selected.set(next, result.override.manifest);
-    branch.overrides.set(next, result.override.pin);
+    branch.selected.set(next, outcome.manifest);
+    branch.overrides.set(next, outcome.pin);
 
-    const edgeFailure = applyEdges(branch, next, result.override.manifest);
+    const edgeFailure = applyEdges(branch, next, outcome.manifest);
 
     if (edgeFailure !== undefined) {
       return { ok: false, failure: edgeFailure };
@@ -552,9 +263,9 @@ async function solve(state: State, context: Context): Promise<SolveResult> {
     return solve(branch, context);
   }
 
-  let firstFailure: Failure | undefined;
+  let firstFailure: CandidateFailure | undefined;
 
-  for (const candidate of result.candidates) {
+  for (const candidate of outcome.candidates) {
     const branch = cloneState(state);
     branch.steps += 1;
     branch.selected.set(next, candidate);
