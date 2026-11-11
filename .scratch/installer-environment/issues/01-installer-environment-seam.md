@@ -1,6 +1,6 @@
 # 01 - Installer environment seam
 
-Status: ready-for-agent
+Status: resolved
 
 ## Goal
 
@@ -22,3 +22,5 @@ Introduce the Installer module and its explicit environment without changing beh
 - No behaviour change; all existing tests remain green.
 
 ## Comments
+
+- 2026-11-11: Merged `feat/installer-01-environment` into `integration/installer-environment` as merge commit `d0765bd`. No conflicts; branch was based on the current integration head. Verified in the main worktree: `npm run typecheck` passed, `npm test` passed (155 tests, 153 pass, 2 skipped), `npm run build` passed.
