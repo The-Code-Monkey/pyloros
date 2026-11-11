@@ -11,7 +11,7 @@ import {
   type InstallerEnvironment,
   type Registry,
 } from "../src/install/installer.ts";
-import { sha512Sri } from "../src/registry/integrity.ts";
+import { sha512Hex, sha512Sri } from "../src/registry/integrity.ts";
 import type { Packument, VersionManifest } from "../src/registry/packument.ts";
 import { ContentStore } from "../src/store/cas.ts";
 import type { Platform } from "../src/store/platform.ts";
@@ -252,23 +252,69 @@ test("re-resolve intent takes preferred versions from the intent", async () => {
 
 test("installer filters platform variants with the injected platform", async () => {
   const directory = await project({
-    dependencies: { alpha: "1.0.0" },
-    optionalDependencies: { beta: "1.0.0" },
+    optionalDependencies: {
+      alpha: "1.0.0",
+      beta: "1.0.0",
+      gamma: "1.0.0",
+    },
   });
   const registry = new FakeRegistry([
     entry("alpha", "1.0.0", "alpha", { os: ["linux"], cpu: ["x64"] }),
-    entry("beta", "1.0.0", "beta", { os: ["darwin"] }),
+    entry("beta", "1.0.0", "beta", { os: ["darwin"], cpu: ["arm64"] }),
+    entry("gamma", "1.0.0", "gamma", { os: ["darwin"], cpu: ["x64"] }),
   ]);
 
   try {
-    const installer = createInstaller(environment(directory, registry));
+    const installer = createInstaller(
+      environment(directory, registry, {
+        platform: { os: "darwin", cpu: "arm64" },
+      }),
+    );
     const result = await installer.install({ kind: "resolve", directory });
 
-    assert.deepEqual(result.materialize.installed, ["alpha"]);
-    assert.deepEqual(result.materialize.skipped, ["beta"]);
+    assert.deepEqual(result.materialize.installed, ["beta"]);
+    assert.deepEqual(result.materialize.skipped, ["alpha", "gamma"]);
     await assert.rejects(
-      stat(join(directory, "node_modules", "beta")),
+      stat(join(directory, "node_modules", "alpha")),
       /ENOENT/u,
+    );
+    await assert.rejects(
+      stat(join(directory, "node_modules", "gamma")),
+      /ENOENT/u,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("installer reuses the injected Store across installs", async () => {
+  const directory = await project({ dependencies: { alpha: "1.0.0" } });
+  const alpha = entry("alpha", "1.0.0", "alpha");
+  const registry = new FakeRegistry([alpha]);
+  const store = new ContentStore(join(directory, "store"));
+
+  try {
+    const installer = createInstaller(environment(directory, registry, { store }));
+    await installer.install({ kind: "resolve", directory });
+
+    const cached = join(
+      store.root,
+      "packages",
+      sha512Hex(alpha.data),
+      "package",
+      "index.js",
+    );
+    assert.equal(await readFile(cached, "utf8"), "alpha");
+
+    await rm(join(directory, "node_modules"), { recursive: true, force: true });
+    await writeFile(cached, "cached");
+
+    const result = await installer.install({ kind: "frozen", directory });
+
+    assert.equal(result.mode, "frozen");
+    assert.equal(
+      await readFile(join(directory, "node_modules", "alpha", "index.js"), "utf8"),
+      "cached",
     );
   } finally {
     await rm(directory, { recursive: true, force: true });
