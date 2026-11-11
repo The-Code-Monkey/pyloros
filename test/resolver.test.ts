@@ -266,3 +266,21 @@ test("resolves devDependencies alongside runtime dependencies", async () => {
 
   assert.deepEqual(identities(result.packages), ["a@1.0.0", "dev@2.0.0"]);
 });
+
+test("enforces the selection budget", async () => {
+  const registry = new FakeRegistry([
+    packageDoc("a", [version("a", "1.0.0")]),
+  ]);
+  const manifest = projectManifest({ a: "*" });
+
+  await assert.rejects(
+    resolve(manifest, registry, { nodeVersion: NODE, maxSelections: 0 }),
+    /exceeded 0 selections/u,
+  );
+
+  const result = await resolve(manifest, registry, {
+    nodeVersion: NODE,
+    maxSelections: 1,
+  });
+  assert.deepEqual(identities(result.packages), ["a@1.0.0"]);
+});
