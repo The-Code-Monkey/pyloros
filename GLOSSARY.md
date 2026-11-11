@@ -28,6 +28,11 @@ _Avoid_: lock entry, resolution
 An install that materializes the recorded tree without resolving new versions.
 _Avoid_: deterministic install, replay
 
+**Install Session**:
+The operation built from one explicit environment that reads a project, chooses the install intent, resolves, materializes and writes the lockfile.
+_Avoid_: installer, install orchestrator
+
+
 **Re-resolution**:
 Producing a new Clean Resolution Set, permitted only for a different Node.js version or an explicit update.
 _Avoid_: refresh, reinstall, sync

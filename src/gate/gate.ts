@@ -4,8 +4,6 @@ import { GateError, ProvenanceError } from "../core/errors.ts";
 import type { LockfilePackage, LockfileProvenance } from "../core/lockfile.ts";
 import type { PylorosPolicy } from "../core/manifest.ts";
 import { lifecycleScripts } from "./lifecycle.ts";
-import { absentProvenanceVerifier } from "./provenance.ts";
-import { BubblewrapSandbox } from "./sandbox.ts";
 import type {
   GatePackageReport,
   GateReport,
@@ -14,18 +12,16 @@ import type {
   SandboxRunner,
 } from "./types.ts";
 
-const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
-
 export interface GateRunOptions {
   policy: PylorosPolicy;
   packages: readonly LockfilePackage[];
   directories: ReadonlyMap<string, string>;
   tarballs: ReadonlyMap<string, Uint8Array>;
   storeRoot: string;
-  provenance?: ProvenanceVerifier;
-  sandbox?: SandboxRunner;
+  provenance: ProvenanceVerifier;
+  sandbox: SandboxRunner;
   expectedProvenance?: ReadonlyMap<string, LockfileProvenance>;
-  timeoutMs?: number;
+  timeoutMs: number;
 }
 
 function scriptEnvironment(): Record<string, string> {
@@ -38,9 +34,9 @@ function scriptEnvironment(): Record<string, string> {
 }
 
 export async function runGate(options: GateRunOptions): Promise<GateReport> {
-  const provenance = options.provenance ?? absentProvenanceVerifier();
-  const sandbox = options.sandbox ?? new BubblewrapSandbox();
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const provenance = options.provenance;
+  const sandbox = options.sandbox;
+  const timeoutMs = options.timeoutMs;
   const reports: GatePackageReport[] = [];
   let sandboxChecked = false;
 

@@ -16,9 +16,14 @@ import {
   type TarballSource,
 } from "../src/store/materialize.ts";
 import { FIXED_SNAPSHOT } from "./helpers/advisories.ts";
+import {
+  ABSENT,
+  FakeProvenance,
+  FakeSandbox,
+  PLATFORM,
+} from "./helpers/install.ts";
 import { makeTar } from "./helpers/tar.ts";
 
-const PLATFORM = { os: "linux", cpu: "x64", libc: "glibc" } as const;
 const POLICY = { allowScripts: {}, pins: {}, allowAdvisories: [] };
 const NOW = () => new Date(FIXED_SNAPSHOT);
 const CONCURRENCY = 4;
@@ -117,7 +122,10 @@ test("materializes a flat tree and skips mismatched platform variants", async ()
       store: new ContentStore(join(project, "store")),
       platform: PLATFORM,
       policy: POLICY,
+      provenance: new FakeProvenance(ABSENT),
+      sandbox: new FakeSandbox(),
       concurrency: CONCURRENCY,
+      scriptTimeoutMs: 30_000,
       now: NOW,
     });
 
@@ -162,7 +170,10 @@ test("rejects a root dependency that does not support the platform", async () =>
         store: new ContentStore(join(project, "store")),
         platform: PLATFORM,
         policy: POLICY,
+        provenance: new FakeProvenance(ABSENT),
+        sandbox: new FakeSandbox(),
         concurrency: CONCURRENCY,
+        scriptTimeoutMs: 30_000,
         now: NOW,
       }),
       PlatformError,
@@ -194,7 +205,10 @@ test("keeps the previous tree when materialization fails", async () => {
         store: new ContentStore(join(project, "store")),
         platform: PLATFORM,
         policy: POLICY,
+        provenance: new FakeProvenance(ABSENT),
+        sandbox: new FakeSandbox(),
         concurrency: CONCURRENCY,
+        scriptTimeoutMs: 30_000,
         now: NOW,
       }),
       /network down/,
