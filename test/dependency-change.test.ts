@@ -13,37 +13,21 @@ import {
 } from "../src/core/lockfile.ts";
 import {
   applyDependencyChange,
-  type InstallRunner,
 } from "../src/install/dependency-change.ts";
 import { readRawManifest } from "../src/install/manifest-edit.ts";
 import type {
-  InstallProjectOptions,
-  InstallProjectResult,
-  Registry,
-} from "../src/install/install.ts";
-import type { Packument, VersionManifest } from "../src/registry/packument.ts";
+  InstallIntent,
+  InstallResult,
+  InstallSession,
+} from "../src/install/install-session.ts";
 import { FIXED_SNAPSHOT } from "./helpers/advisories.ts";
+import { FakeRegistry } from "./helpers/install.ts";
+import { version } from "./helpers/registry.ts";
 
-class FakeRegistry implements Registry {
-  readonly #tags: Record<string, Record<string, string>>;
-
-  constructor(tags: Record<string, Record<string, string>>) {
-    this.#tags = tags;
-  }
-
-  async getPackument(name: string): Promise<Packument> {
-    const tags = this.#tags[name];
-
-    if (tags === undefined) {
-      throw new Error(`no package ${name}`);
-    }
-
-    return { name, versions: {}, "dist-tags": tags };
-  }
-
-  async getTarball(_manifest: VersionManifest): Promise<Uint8Array> {
-    throw new Error("unused");
-  }
+function registryWithLatest(name: string, latest: string): FakeRegistry {
+  return new FakeRegistry([
+    { name, version: latest, manifest: version(name, latest) },
+  ]);
 }
 
 function lockfile(
@@ -75,7 +59,7 @@ function lockfile(
   };
 }
 
-function installed(lockfile: Lockfile): InstallProjectResult {
+function installed(lockfile: Lockfile): InstallResult {
   return {
     mode: "re-resolve",
     lockfile,
@@ -90,22 +74,22 @@ function installed(lockfile: Lockfile): InstallProjectResult {
 }
 
 interface Recorder {
-  options?: InstallProjectOptions;
+  intent?: InstallIntent;
   calls: number;
 }
 
 function successfulInstall(
   packages: Record<string, string>,
   recorder: Recorder = { calls: 0 },
-): InstallRunner {
-  return async (options) => {
+): InstallSession["install"] {
+  return async (intent) => {
     recorder.calls += 1;
-    recorder.options = options;
-    const manifest = (await readRawManifest(options.directory)) as {
+    recorder.intent = intent;
+    const manifest = (await readRawManifest(intent.directory)) as {
       dependencies?: Record<string, string>;
     };
     const lockfileValue = lockfile(packages, manifest.dependencies ?? {});
-    await writeLockfile(options.directory, lockfileValue);
+    await writeLockfile(intent.directory, lockfileValue);
     return installed(lockfileValue);
   };
 }
@@ -139,14 +123,14 @@ test("add saves an exact tag version and syncs the lockfile root", async () => {
       directory,
       { kind: "add", spec: "a", saveMode: "exact" },
       {
-        registry: new FakeRegistry({ a: { latest: "1.2.3" } }),
+        registry: registryWithLatest("a", "1.2.3"),
         install: successfulInstall({ a: "1.2.3" }, recorder),
       },
     );
 
     assert.equal(result.version, "1.2.3");
     assert.equal(result.saved, "1.2.3");
-    assert.deepEqual(recorder.options?.preferred, {});
+    assert.deepEqual(recorder.intent?.preferred, {});
 
     const manifest = (await readRawManifest(directory)) as {
       dependencies: Record<string, string>;
@@ -168,7 +152,7 @@ test("add --range saves a caret range", async () => {
       directory,
       { kind: "add", spec: "a", saveMode: "caret" },
       {
-        registry: new FakeRegistry({ a: { latest: "1.2.3" } }),
+        registry: registryWithLatest("a", "1.2.3"),
         install: successfulInstall({ a: "1.2.3" }),
       },
     );
@@ -198,7 +182,7 @@ test("add restores the manifest when install fails", async () => {
         directory,
         { kind: "add", spec: "a", saveMode: "exact" },
         {
-          registry: new FakeRegistry({ a: { latest: "1.2.3" } }),
+          registry: registryWithLatest("a", "1.2.3"),
           install: async () => {
             throw new Error("install failed");
           },
@@ -300,7 +284,47 @@ test("scoped update preserves other Pins", async () => {
       { install: successfulInstall({ a: "2.0.0", b: "1.0.0" }, recorder) },
     );
 
-    assert.deepEqual(recorder.options?.preferred, { b: "1.0.0" });
+    assert.deepEqual(recorder.intent?.preferred, { b: "1.0.0" });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("transaction calls the install runner with an explicit intent", async () => {
+  const directory = await project({ a: "1.0.0", b: "1.0.0" });
+  await writeLockfile(
+    directory,
+    lockfile({ a: "1.0.0", b: "1.0.0" }, { a: "1.0.0", b: "1.0.0" }),
+  );
+  const intents: unknown[] = [];
+
+  try {
+    await applyDependencyChange(
+      directory,
+      { kind: "update", name: "a" },
+      {
+        install: async (intent) => {
+          intents.push(intent);
+          const manifest = (await readRawManifest(directory)) as {
+            dependencies?: Record<string, string>;
+          };
+          const value = lockfile(
+            { a: "2.0.0", b: "1.0.0" },
+            manifest.dependencies ?? {},
+          );
+          await writeLockfile(directory, value);
+          return installed(value);
+        },
+      },
+    );
+
+    assert.deepEqual(intents, [
+      {
+        kind: "re-resolve",
+        directory,
+        preferred: { b: "1.0.0" },
+      },
+    ]);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

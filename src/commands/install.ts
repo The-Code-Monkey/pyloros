@@ -1,6 +1,11 @@
 import { ExitCode } from "../core/exit-codes.ts";
 import { UsageError } from "../core/errors.ts";
-import { installProject } from "../install/install.ts";
+import { readLockfile } from "../core/lockfile.ts";
+import {
+  installIntentFor,
+  type InstallResult,
+} from "../install/install-session.ts";
+import { createCommandInstallSession } from "./environment.ts";
 import { parseFlags, printJson, scriptSummary, selectorFor } from "./shared.ts";
 
 interface ScriptLines {
@@ -8,7 +13,7 @@ interface ScriptLines {
   skipped: string[];
 }
 
-function collectScripts(result: Awaited<ReturnType<typeof installProject>>): ScriptLines {
+function collectScripts(result: InstallResult): ScriptLines {
   const executed: string[] = [];
   const skipped: string[] = [];
 
@@ -42,15 +47,20 @@ export async function installCommand(
   }
 
   const allowAdvisories = flags.booleans.has("--allow-advisories");
-  const result = await installProject({
-    directory,
-    reResolve: flags.booleans.has("--re-resolve"),
+  const { session } = createCommandInstallSession({
     allowAdvisories,
     fallback: selectorFor({
       select: flags.values.get("--select"),
       allowAdvisories,
     }),
   });
+  const existing = await readLockfile(directory);
+  const intent = installIntentFor(
+    directory,
+    existing,
+    flags.booleans.has("--re-resolve") ? "re-resolve" : "frozen",
+  );
+  const result = await session.install(intent);
   const scripts = collectScripts(result);
 
   if (json) {

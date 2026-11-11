@@ -11,24 +11,16 @@ import { sha512Sri } from "../src/registry/integrity.ts";
 import type { Resolution } from "../src/resolve/resolver.ts";
 import { ContentStore } from "../src/store/cas.ts";
 import { materialize } from "../src/store/materialize.ts";
-import type {
-  GateReport,
-  ProvenanceVerification,
-  ProvenanceVerifier,
-  SandboxRequest,
-  SandboxResult,
-  SandboxRunner,
-} from "../src/gate/types.ts";
+import type { GateReport, ProvenanceVerifier, SandboxRunner } from "../src/gate/types.ts";
 import { FIXED_SNAPSHOT } from "./helpers/advisories.ts";
+import {
+  ABSENT,
+  FakeProvenance,
+  FakeSandbox,
+  PLATFORM,
+  VERIFIED,
+} from "./helpers/install.ts";
 import { makeTar } from "./helpers/tar.ts";
-
-const PLATFORM = { os: "linux", cpu: "x64", libc: "glibc" } as const;
-const VERIFIED: ProvenanceVerification = {
-  status: "verified",
-  attestationDigest: "digest",
-  subjectIntegrity: "sha512-subject",
-  verifiedAt: FIXED_SNAPSHOT,
-};
 
 interface Entry {
   name: string;
@@ -107,41 +99,6 @@ class FakeTarballs {
   }
 }
 
-class FakeProvenance implements ProvenanceVerifier {
-  readonly #result: ProvenanceVerification;
-
-  constructor(result: ProvenanceVerification = VERIFIED) {
-    this.#result = result;
-  }
-
-  async verify(): Promise<ProvenanceVerification> {
-    return this.#result;
-  }
-}
-
-class FakeSandbox implements SandboxRunner {
-  readonly requests: SandboxRequest[] = [];
-  readonly #available: boolean;
-  readonly #result: SandboxResult;
-
-  constructor(
-    available = true,
-    result: SandboxResult = { exitCode: 0, signal: null, timedOut: false },
-  ) {
-    this.#available = available;
-    this.#result = result;
-  }
-
-  async available(): Promise<boolean> {
-    return this.#available;
-  }
-
-  async run(request: SandboxRequest): Promise<SandboxResult> {
-    this.requests.push(request);
-    return this.#result;
-  }
-}
-
 async function project(): Promise<string> {
   return mkdtemp(join(tmpdir(), "pyloros-gate-"));
 }
@@ -169,8 +126,11 @@ async function materializeFixture(
     store: new ContentStore(join(projectDirectory, "store")),
     platform: PLATFORM,
     policy: policy(options.allowScripts),
-    ...(options.provenance === undefined ? {} : { provenance: options.provenance }),
-    ...(options.sandbox === undefined ? {} : { sandbox: options.sandbox }),
+    provenance: options.provenance ?? new FakeProvenance(ABSENT),
+    sandbox: options.sandbox ?? new FakeSandbox(),
+    concurrency: 4,
+    scriptTimeoutMs: 30_000,
+    now: () => new Date(FIXED_SNAPSHOT),
   });
 }
 

@@ -12,9 +12,17 @@ import type { Resolution } from "../src/resolve/resolver.ts";
 import { ContentStore } from "../src/store/cas.ts";
 import { materialize, type TarballSource } from "../src/store/materialize.ts";
 import { FIXED_SNAPSHOT } from "./helpers/advisories.ts";
+import {
+  ABSENT,
+  FakeProvenance,
+  FakeSandbox,
+  PLATFORM,
+} from "./helpers/install.ts";
 import { makeTar } from "./helpers/tar.ts";
 
-const PLATFORM = { os: "linux", cpu: "x64", libc: "glibc" } as const;
+const POLICY = { allowScripts: {}, pins: {}, allowAdvisories: [] };
+const NOW = () => new Date(FIXED_SNAPSHOT);
+const CONCURRENCY = 4;
 
 interface Entry {
   name: string;
@@ -109,7 +117,12 @@ test("materializes a flat tree and skips mismatched platform variants", async ()
       registry: new FakeTarballs(tarballs),
       store: new ContentStore(join(project, "store")),
       platform: PLATFORM,
-      now: () => new Date(FIXED_SNAPSHOT),
+      policy: POLICY,
+      provenance: new FakeProvenance(ABSENT),
+      sandbox: new FakeSandbox(),
+      concurrency: CONCURRENCY,
+      scriptTimeoutMs: 30_000,
+      now: NOW,
     });
 
     assert.deepEqual(result.installed, ["@scope/gamma", "alpha"]);
@@ -152,6 +165,12 @@ test("rejects a root dependency that does not support the platform", async () =>
         registry: new FakeTarballs(tarballs),
         store: new ContentStore(join(project, "store")),
         platform: PLATFORM,
+        policy: POLICY,
+        provenance: new FakeProvenance(ABSENT),
+        sandbox: new FakeSandbox(),
+        concurrency: CONCURRENCY,
+        scriptTimeoutMs: 30_000,
+        now: NOW,
       }),
       PlatformError,
     );
@@ -181,6 +200,12 @@ test("keeps the previous tree when materialization fails", async () => {
         registry: broken,
         store: new ContentStore(join(project, "store")),
         platform: PLATFORM,
+        policy: POLICY,
+        provenance: new FakeProvenance(ABSENT),
+        sandbox: new FakeSandbox(),
+        concurrency: CONCURRENCY,
+        scriptTimeoutMs: 30_000,
+        now: NOW,
       }),
       /network down/,
     );

@@ -6,15 +6,12 @@ import {
   type Lockfile,
 } from "../core/lockfile.ts";
 import { parseProjectManifest } from "../core/manifest.ts";
-import { RegistryClient } from "../registry/client.ts";
-import type { FallbackSelector } from "../resolve/resolver.ts";
 import {
-  installProject,
-  preferredVersions,
-  type InstallProjectOptions,
-  type InstallProjectResult,
+  installIntentFor,
+  type InstallResult,
+  type InstallSession,
   type Registry,
-} from "./install.ts";
+} from "./install-session.ts";
 import {
   readRawManifest,
   removeDependency,
@@ -30,17 +27,9 @@ export type DependencyChange =
   | { kind: "remove"; name: string }
   | { kind: "update"; name?: string };
 
-export type InstallRunner = (
-  options: InstallProjectOptions,
-) => Promise<InstallProjectResult>;
-
 export interface DependencyChangeOptions {
   registry?: Registry;
-  install?: InstallRunner;
-  allowAdvisories?: boolean;
-  fallback?: FallbackSelector;
-  scriptTimeoutMs?: number;
-  now?: () => Date;
+  install: InstallSession["install"];
 }
 
 export interface DependencyChangeDiff {
@@ -57,7 +46,7 @@ export interface DependencyChangeResult {
   previous: string | null;
   changed: DependencyChangeDiff[];
   lockfile: Lockfile;
-  install: InstallProjectResult;
+  install: InstallResult;
 }
 
 function changes(before: Lockfile, after: Lockfile): DependencyChangeDiff[] {
@@ -79,22 +68,36 @@ function changes(before: Lockfile, after: Lockfile): DependencyChangeDiff[] {
   return result;
 }
 
-function baseOptions(
+function preferredVersions(
+  lockfile: Lockfile | undefined,
+  exclude: readonly string[] = [],
+): Record<string, string> {
+  const preferred: Record<string, string> = {};
+
+  if (lockfile === undefined) {
+    return preferred;
+  }
+
+  for (const pkg of Object.values(lockfile.packages)) {
+    if (!exclude.includes(pkg.name)) {
+      preferred[pkg.name] = pkg.version;
+    }
+  }
+
+  return preferred;
+}
+
+async function withManifestRollback<T>(
   directory: string,
-  registry: Registry | undefined,
-  options: DependencyChangeOptions,
-): InstallProjectOptions {
-  return {
-    directory,
-    reResolve: true,
-    ...(registry === undefined ? {} : { registry }),
-    ...(options.allowAdvisories === true ? { allowAdvisories: true } : {}),
-    ...(options.fallback === undefined ? {} : { fallback: options.fallback }),
-    ...(options.scriptTimeoutMs === undefined
-      ? {}
-      : { scriptTimeoutMs: options.scriptTimeoutMs }),
-    ...(options.now === undefined ? {} : { now: options.now }),
-  };
+  snapshot: Record<string, unknown>,
+  run: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    await writeRawManifest(directory, snapshot);
+    throw error;
+  }
 }
 
 async function provisionalRange(
@@ -134,27 +137,31 @@ async function provisionalRange(
 export async function applyDependencyChange(
   directory: string,
   change: DependencyChange,
-  options: DependencyChangeOptions = {},
+  options: DependencyChangeOptions,
 ): Promise<DependencyChangeResult> {
-  const install = options.install ?? installProject;
+  const install = options.install;
   const original = await readRawManifest(directory);
   const snapshot = structuredClone(original);
-  parseProjectManifest(directory, structuredClone(original));
+  parseProjectManifest(directory, original);
   const existing = await readLockfile(directory);
 
   if (change.kind === "add") {
-    const registry = options.registry ?? new RegistryClient();
+    const registry = options.registry;
+
+    if (registry === undefined) {
+      throw new UsageError("add needs a registry");
+    }
+
     const provisional = await provisionalRange(change.spec, registry);
     const preferred = preferredVersions(existing, [provisional.name]);
 
     setDependency(original, provisional.name, provisional.range);
     await writeRawManifest(directory, original);
 
-    try {
-      const result = await install({
-        ...baseOptions(directory, registry, options),
-        preferred,
-      });
+    return withManifestRollback(directory, snapshot, async () => {
+      const result = await install(
+        installIntentFor(directory, existing, "re-resolve", preferred),
+      );
       const chosen = result.lockfile.packages[provisional.name];
 
       if (chosen === undefined) {
@@ -175,7 +182,7 @@ export async function applyDependencyChange(
       }
 
       return {
-        kind: "add",
+        kind: "add" as const,
         name: provisional.name,
         version: chosen.version,
         saved,
@@ -184,10 +191,7 @@ export async function applyDependencyChange(
         lockfile: result.lockfile,
         install: result,
       };
-    } catch (error) {
-      await writeRawManifest(directory, snapshot);
-      throw error;
-    }
+    });
   }
 
   if (change.kind === "remove") {
@@ -200,14 +204,13 @@ export async function applyDependencyChange(
     const preferred = preferredVersions(existing, [change.name]);
     await writeRawManifest(directory, original);
 
-    try {
-      const result = await install({
-        ...baseOptions(directory, options.registry, options),
-        preferred,
-      });
+    return withManifestRollback(directory, snapshot, async () => {
+      const result = await install(
+        installIntentFor(directory, existing, "re-resolve", preferred),
+      );
 
       return {
-        kind: "remove",
+        kind: "remove" as const,
         name: change.name,
         version: null,
         saved: null,
@@ -216,10 +219,7 @@ export async function applyDependencyChange(
         lockfile: result.lockfile,
         install: result,
       };
-    } catch (error) {
-      await writeRawManifest(directory, snapshot);
-      throw error;
-    }
+    });
   }
 
   if (existing === undefined) {
@@ -238,12 +238,14 @@ export async function applyDependencyChange(
     throw new UsageError(`${name} is not in the dependency tree`);
   }
 
-  const result = await install({
-    ...baseOptions(directory, options.registry, options),
-    ...(name === undefined
-      ? {}
-      : { preferred: preferredVersions(existing, [name]) }),
-  });
+  const result = await install(
+    installIntentFor(
+      directory,
+      existing,
+      "re-resolve",
+      name === undefined ? undefined : preferredVersions(existing, [name]),
+    ),
+  );
 
   return {
     kind: "update",

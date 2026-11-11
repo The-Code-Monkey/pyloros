@@ -23,13 +23,8 @@ import type {
   ProvenanceVerifier,
   SandboxRunner,
 } from "../gate/types.ts";
-import { ContentStore } from "./cas.ts";
-import {
-  currentPlatform,
-  matchesPlatform,
-  type Platform,
-} from "./platform.ts";
-import { openTree } from "./tree-transaction.ts";
+import type { ContentStore } from "./cas.ts";
+import { matchesPlatform, type Platform } from "./platform.ts";
 
 export interface TarballSource {
   getTarball(manifest: VersionManifest): Promise<Uint8Array>;
@@ -39,15 +34,15 @@ export interface MaterializeOptions {
   projectDirectory: string;
   lockfile: Lockfile;
   registry: TarballSource;
-  store?: ContentStore;
-  platform?: Platform;
-  concurrency?: number;
-  now?: () => Date;
-  policy?: PylorosPolicy;
-  provenance?: ProvenanceVerifier;
-  sandbox?: SandboxRunner;
+  store: ContentStore;
+  platform: Platform;
+  concurrency: number;
+  now: () => Date;
+  policy: PylorosPolicy;
+  provenance: ProvenanceVerifier;
+  sandbox: SandboxRunner;
   expectedProvenance?: ReadonlyMap<string, LockfileProvenance>;
-  scriptTimeoutMs?: number;
+  scriptTimeoutMs: number;
 }
 
 export interface MaterializeResult {
@@ -162,9 +157,6 @@ async function packageRoot(directory: string): Promise<string> {
 export async function materialize(
   options: MaterializeOptions,
 ): Promise<MaterializeResult> {
-  const platform = options.platform ?? currentPlatform();
-  const store = options.store ?? new ContentStore();
-  const now = options.now ?? (() => new Date());
   const packages = Object.values(options.lockfile.packages).sort((left, right) =>
     left.name.localeCompare(right.name),
   );
@@ -172,16 +164,16 @@ export async function materialize(
   for (const name of Object.keys(options.lockfile.root.dependencies)) {
     const pkg = options.lockfile.packages[name];
 
-    if (pkg !== undefined && !matchesPlatform(pkg, platform)) {
+    if (pkg !== undefined && !matchesPlatform(pkg, options.platform)) {
       throw new PlatformError(
-        `root dependency ${name}@${pkg.version} does not support ${platform.os}/${platform.cpu}`,
+        `root dependency ${name}@${pkg.version} does not support ${options.platform.os}/${options.platform.cpu}`,
       );
     }
   }
 
-  const selected = packages.filter((pkg) => matchesPlatform(pkg, platform));
+  const selected = packages.filter((pkg) => matchesPlatform(pkg, options.platform));
   const skipped = packages
-    .filter((pkg) => !matchesPlatform(pkg, platform))
+    .filter((pkg) => !matchesPlatform(pkg, options.platform))
     .map((pkg) => pkg.name);
 
   const tree = await openTree(options.projectDirectory);
@@ -190,10 +182,10 @@ export async function materialize(
   try {
     const extracted = await mapLimit(
       selected,
-      options.concurrency ?? 8,
+      options.concurrency,
       async (pkg) => {
         const data = await options.registry.getTarball(manifestFromLock(pkg));
-        const entry = await store.putTarball(data);
+        const entry = await options.store.putTarball(data);
         return { pkg, directory: await packageRoot(entry.directory), data };
       },
     );
@@ -210,25 +202,17 @@ export async function materialize(
     }
 
     const gate = await runGate({
-      policy: options.policy ?? {
-        allowScripts: {},
-        pins: {},
-        allowAdvisories: [],
-      },
+      policy: options.policy,
       packages: selected,
       directories,
       tarballs,
-      storeRoot: store.root,
-      ...(options.provenance === undefined
-        ? {}
-        : { provenance: options.provenance }),
-      ...(options.sandbox === undefined ? {} : { sandbox: options.sandbox }),
+      storeRoot: options.store.root,
+      provenance: options.provenance,
+      sandbox: options.sandbox,
       ...(options.expectedProvenance === undefined
         ? {}
         : { expectedProvenance: options.expectedProvenance }),
-      ...(options.scriptTimeoutMs === undefined
-        ? {}
-        : { timeoutMs: options.scriptTimeoutMs }),
+      timeoutMs: options.scriptTimeoutMs,
     });
 
     const stateDirectory = join(staging, STATE_DIRECTORY);
@@ -239,7 +223,7 @@ export async function materialize(
         {
           tool: options.lockfile.tool,
           node: options.lockfile.node,
-          installedAt: now().toISOString(),
+          installedAt: options.now().toISOString(),
           packages: selected.map((pkg) => `${pkg.name}@${pkg.version}`),
           skipped,
         },

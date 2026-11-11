@@ -13,19 +13,31 @@ import {
   readLockfile,
   writeLockfile,
 } from "../src/core/lockfile.ts";
-import { installProject, type Registry } from "../src/install/install.ts";
-import type { Packument, VersionManifest } from "../src/registry/packument.ts";
+import {
+  createInstallSession,
+  type InstallIntent,
+  type InstallResult,
+} from "../src/install/install-session.ts";
+import type { VersionManifest } from "../src/registry/packument.ts";
 import { sha512Sri } from "../src/registry/integrity.ts";
 import type { ProvenanceVerifier, SandboxRunner } from "../src/gate/types.ts";
+import { ContentStore } from "../src/store/cas.ts";
 import { FIXED_SNAPSHOT, FakeAdvisories } from "./helpers/advisories.ts";
+import {
+  ABSENT,
+  FakeProvenance,
+  FakeRegistry,
+  FakeSandbox,
+  NODE_ABI,
+  NODE_VERSION,
+  PLATFORM,
+  VERIFIED,
+  verified,
+  type RegistryEntry,
+} from "./helpers/install.ts";
 import { makeTar } from "./helpers/tar.ts";
 
-interface Entry {
-  name: string;
-  version: string;
-  manifest: VersionManifest;
-  data: Uint8Array;
-}
+type Entry = RegistryEntry & { data: Uint8Array };
 
 function entry(
   name: string,
@@ -50,75 +62,6 @@ function entry(
       ...(Object.keys(scripts).length === 0 ? {} : { scripts }),
     },
   };
-}
-
-class FakeRegistry implements Registry {
-  readonly #entries: Map<string, Entry>;
-
-  constructor(entries: readonly Entry[]) {
-    this.#entries = new Map(entries.map((item) => [item.name, item]));
-  }
-
-  async getPackument(name: string): Promise<Packument> {
-    const item = this.#entries.get(name);
-
-    if (item === undefined) {
-      throw new Error(`no package ${name}`);
-    }
-
-    return {
-      name,
-      versions: { [item.version]: item.manifest },
-      "dist-tags": { latest: item.version },
-    };
-  }
-
-  async getTarball(manifest: VersionManifest): Promise<Uint8Array> {
-    const item = this.#entries.get(manifest.name);
-
-    if (item === undefined) {
-      throw new Error(`no tarball for ${manifest.name}`);
-    }
-
-    return item.data;
-  }
-}
-
-class FakeProvenance implements ProvenanceVerifier {
-  readonly #digest: string | undefined;
-  readonly #status: "verified" | "absent";
-
-  constructor(status: "verified" | "absent", digest = "digest") {
-    this.#status = status;
-    this.#digest = digest;
-  }
-
-  async verify() {
-    return this.#status === "verified"
-      ? {
-          status: "verified" as const,
-          attestationDigest: this.#digest,
-          subjectIntegrity: "sha512-subject",
-          verifiedAt: FIXED_SNAPSHOT,
-        }
-      : { status: "absent" as const };
-  }
-}
-
-class FakeSandbox implements SandboxRunner {
-  readonly #code: number;
-
-  constructor(code = 0) {
-    this.#code = code;
-  }
-
-  async available(): Promise<boolean> {
-    return true;
-  }
-
-  async run() {
-    return { exitCode: this.#code, signal: null, timedOut: false };
-  }
 }
 
 async function project(dependencies: Record<string, string>): Promise<string> {
@@ -152,11 +95,39 @@ function options(
     directory,
     registry: new FakeRegistry(entries),
     advisoryProvider: new FakeAdvisories(),
-    provenance: extra.provenance ?? new FakeProvenance("absent"),
+    provenance: extra.provenance ?? new FakeProvenance(ABSENT),
     sandbox: extra.sandbox ?? new FakeSandbox(),
     now: () => new Date(FIXED_SNAPSHOT),
     ...(extra.reResolve === undefined ? {} : { reResolve: extra.reResolve }),
   };
+}
+
+async function runInstall(
+  settings: ReturnType<typeof options>,
+): Promise<InstallResult> {
+  const session = createInstallSession({
+    registry: settings.registry,
+    advisoryProvider: settings.advisoryProvider,
+    provenance: settings.provenance,
+    sandbox: settings.sandbox,
+    store: new ContentStore(join(settings.directory, "store")),
+    platform: PLATFORM,
+    clock: settings.now,
+    concurrency: 4,
+    scriptTimeoutMs: 30_000,
+    allowAdvisories: false,
+    nodeVersion: NODE_VERSION,
+    nodeAbi: NODE_ABI,
+  });
+  const existing = await readLockfile(settings.directory);
+  const intent: InstallIntent =
+    existing === undefined
+      ? { kind: "resolve", directory: settings.directory }
+      : settings.reResolve === true
+        ? { kind: "re-resolve", directory: settings.directory }
+        : { kind: "frozen", directory: settings.directory };
+
+  return session.install(intent);
 }
 
 test("resolves, writes the lockfile, and materializes", async () => {
@@ -164,8 +135,8 @@ test("resolves, writes the lockfile, and materializes", async () => {
   const alpha = entry("alpha", "alpha");
 
   try {
-    const result = await installProject(
-      options(directory, [alpha], { provenance: new FakeProvenance("verified") }),
+    const result = await runInstall(
+      options(directory, [alpha], { provenance: new FakeProvenance(VERIFIED) }),
     );
 
     assert.equal(result.mode, "resolve");
@@ -188,9 +159,9 @@ test("a second install is frozen and leaves the lockfile untouched", async () =>
   const alpha = entry("alpha", "alpha");
 
   try {
-    await installProject(options(directory, [alpha]));
+    await runInstall(options(directory, [alpha]));
     const before = serializeLockfile((await readLockfile(directory))!);
-    const result = await installProject(options(directory, [alpha]));
+    const result = await runInstall(options(directory, [alpha]));
 
     assert.equal(result.mode, "frozen");
     assert.equal(result.wroteLockfile, false);
@@ -205,13 +176,13 @@ test("rejects a lockfile resolved for another Node version", async () => {
   const alpha = entry("alpha", "alpha");
 
   try {
-    await installProject(options(directory, [alpha]));
+    await runInstall(options(directory, [alpha]));
     const lockfile = (await readLockfile(directory))!;
     lockfile.node = { version: "0.0.0", abi: lockfile.node.abi };
     await writeLockfile(directory, lockfile);
 
     await assert.rejects(
-      installProject(options(directory, [alpha])),
+      runInstall(options(directory, [alpha])),
       RuntimeContractError,
     );
   } finally {
@@ -224,7 +195,7 @@ test("rejects root drift on a frozen install", async () => {
   const alpha = entry("alpha", "alpha");
 
   try {
-    await installProject(options(directory, [alpha]));
+    await runInstall(options(directory, [alpha]));
     await writeFile(
       join(directory, "package.json"),
       `${JSON.stringify(
@@ -240,7 +211,7 @@ test("rejects root drift on a frozen install", async () => {
     );
 
     await assert.rejects(
-      installProject(options(directory, [alpha])),
+      runInstall(options(directory, [alpha])),
       FrozenDriftError,
     );
   } finally {
@@ -253,8 +224,8 @@ test("re-resolves when asked", async () => {
   const alpha = entry("alpha", "alpha");
 
   try {
-    await installProject(options(directory, [alpha]));
-    const result = await installProject(
+    await runInstall(options(directory, [alpha]));
+    const result = await runInstall(
       options(directory, [alpha], { reResolve: true }),
     );
 
@@ -289,9 +260,9 @@ test("does not persist Gate records when a script fails", async () => {
     );
 
     await assert.rejects(
-      installProject(
+      runInstall(
         options(directory, [alpha], {
-          provenance: new FakeProvenance("verified"),
+          provenance: new FakeProvenance(VERIFIED),
           sandbox: new FakeSandbox(1),
         }),
       ),
@@ -325,17 +296,17 @@ test("fails a frozen install when the attestation digest changed", async () => {
         2,
       )}\n`,
     );
-    await installProject(
+    await runInstall(
       options(directory, [alpha], {
-        provenance: new FakeProvenance("verified", "old-digest"),
+        provenance: new FakeProvenance(verified("old-digest")),
         sandbox: new FakeSandbox(0),
       }),
     );
 
     await assert.rejects(
-      installProject(
+      runInstall(
         options(directory, [alpha], {
-          provenance: new FakeProvenance("verified", "new-digest"),
+          provenance: new FakeProvenance(verified("new-digest")),
           sandbox: new FakeSandbox(0),
         }),
       ),
