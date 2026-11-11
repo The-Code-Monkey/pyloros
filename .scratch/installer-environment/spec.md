@@ -1,6 +1,6 @@
 # Make the installer environment explicit
 
-Status: ready-for-agent
+Status: implemented
 Recorded: 2026-11-11
 
 ## Problem Statement

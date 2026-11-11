@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { readLockfile, serializeLockfile } from "../src/core/lockfile.ts";
-import { currentNodeAbi, currentNodeVersion } from "../src/core/tool.ts";
 import type { ProvenanceVerifier, SandboxRunner } from "../src/gate/types.ts";
 import {
   createInstaller,
@@ -125,10 +124,13 @@ class FakeSandbox implements SandboxRunner {
 }
 
 const PLATFORM: Platform = { os: "linux", cpu: "x64", libc: "glibc" };
+const NODE_VERSION = "24.14.1";
+const NODE_ABI = "137";
 
 async function project(manifest: {
   dependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
+  allowScripts?: Record<string, { reason: string }>;
 }): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "pyloros-installer-"));
 
@@ -138,8 +140,13 @@ async function project(manifest: {
       {
         name: "fixture",
         version: "1.0.0",
-        ...manifest,
-        pyloros: { allowScripts: {}, pins: {}, allowAdvisories: [] },
+        dependencies: manifest.dependencies,
+        optionalDependencies: manifest.optionalDependencies,
+        pyloros: {
+          allowScripts: manifest.allowScripts ?? {},
+          pins: {},
+          allowAdvisories: [],
+        },
       },
       null,
       2,
@@ -164,8 +171,8 @@ function environment(
     clock: () => new Date(FIXED_SNAPSHOT),
     concurrency: 8,
     allowAdvisories: false,
-    nodeVersion: currentNodeVersion(),
-    nodeAbi: currentNodeAbi(),
+    nodeVersion: NODE_VERSION,
+    nodeAbi: NODE_ABI,
     ...extra,
   };
 }
@@ -187,7 +194,8 @@ test("installer resolves and materializes from an explicit environment", async (
 
     const lockfile = await readLockfile(directory);
     assert.ok(lockfile);
-    assert.equal(lockfile.node.version, currentNodeVersion());
+    assert.equal(lockfile.node.version, NODE_VERSION);
+    assert.equal(lockfile.node.abi, NODE_ABI);
     assert.equal(lockfile.packages["alpha"]?.provenance?.status, "verified");
 
     const state = JSON.parse(
@@ -197,6 +205,35 @@ test("installer resolves and materializes from an explicit environment", async (
       ),
     ) as { installedAt: string };
     assert.equal(state.installedAt, FIXED_SNAPSHOT);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("installer persists Gate records and provenance after success", async () => {
+  const directory = await project({
+    dependencies: { alpha: "1.0.0" },
+    allowScripts: { "alpha@1.0.0": { reason: "needs a build" } },
+  });
+  const registry = new FakeRegistry([
+    entry("alpha", "1.0.0", "alpha", { scripts: { install: "echo hi" } }),
+  ]);
+
+  try {
+    const installer = createInstaller(environment(directory, registry));
+    const result = await installer.install({ kind: "resolve", directory });
+
+    assert.deepEqual(result.materialize.gate.packages[0]?.scripts, [
+      { name: "install", action: "executed" },
+    ]);
+
+    const lockfile = await readLockfile(directory);
+    assert.ok(lockfile);
+    assert.equal(lockfile.packages["alpha"]?.provenance?.status, "verified");
+    assert.deepEqual(lockfile.packages["alpha"]?.gate, {
+      allowedScripts: ["install"],
+      reason: "needs a build",
+    });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

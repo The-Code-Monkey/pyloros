@@ -39,9 +39,9 @@ export interface MaterializeOptions {
   registry: TarballSource;
   store: ContentStore;
   platform: Platform;
-  concurrency?: number;
-  now?: () => Date;
-  policy?: PylorosPolicy;
+  concurrency: number;
+  now: () => Date;
+  policy: PylorosPolicy;
   provenance?: ProvenanceVerifier;
   sandbox?: SandboxRunner;
   expectedProvenance?: ReadonlyMap<string, LockfileProvenance>;
@@ -245,7 +245,7 @@ export async function materialize(
 ): Promise<MaterializeResult> {
   const platform = options.platform;
   const store = options.store;
-  const now = options.now ?? (() => new Date());
+  const now = options.now;
   const packages = Object.values(options.lockfile.packages).sort((left, right) =>
     left.name.localeCompare(right.name),
   );
@@ -277,7 +277,7 @@ export async function materialize(
   try {
     const extracted = await mapLimit(
       selected,
-      options.concurrency ?? 8,
+      options.concurrency,
       async (pkg) => {
         const data = await options.registry.getTarball(manifestFromLock(pkg));
         const entry = await store.putTarball(data);
@@ -297,11 +297,7 @@ export async function materialize(
     }
 
     const gate = await runGate({
-      policy: options.policy ?? {
-        allowScripts: {},
-        pins: {},
-        allowAdvisories: [],
-      },
+      policy: options.policy,
       packages: selected,
       directories,
       tarballs,
