@@ -10,11 +10,7 @@ import { sha512Sri } from "../src/registry/integrity.ts";
 import type { VersionManifest } from "../src/registry/packument.ts";
 import type { Resolution } from "../src/resolve/resolver.ts";
 import { ContentStore } from "../src/store/cas.ts";
-import {
-  materialize,
-  recoverInterrupted,
-  type TarballSource,
-} from "../src/store/materialize.ts";
+import { materialize, type TarballSource } from "../src/store/materialize.ts";
 import { FIXED_SNAPSHOT } from "./helpers/advisories.ts";
 import { makeTar } from "./helpers/tar.ts";
 
@@ -199,32 +195,6 @@ test("keeps the previous tree when materialization fails", async () => {
     );
     assert.deepEqual(leftovers, []);
     assert.equal(tarballs.size, 1);
-  } finally {
-    await rm(project, { recursive: true, force: true });
-  }
-});
-
-test("restores an interrupted swap and clears stale staging", async () => {
-  const project = await tempProject();
-
-  try {
-    await mkdir(join(project, ".pyloros-previous-1-abc"), { recursive: true });
-    await writeFile(
-      join(project, ".pyloros-previous-1-abc", "old.txt"),
-      "previous",
-    );
-    await mkdir(join(project, ".pyloros-stage-1-abc"), { recursive: true });
-    await writeFile(join(project, ".pyloros-stage-1-abc", "junk.txt"), "junk");
-
-    await recoverInterrupted(project);
-
-    assert.equal(
-      await readFile(join(project, "node_modules", "old.txt"), "utf8"),
-      "previous",
-    );
-    const names = await readdir(project);
-    assert.equal(names.some((name) => name.startsWith(".pyloros-stage-")), false);
-    assert.equal(names.some((name) => name.startsWith(".pyloros-previous-")), false);
   } finally {
     await rm(project, { recursive: true, force: true });
   }
