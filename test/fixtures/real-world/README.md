@@ -2,7 +2,7 @@
 
 A small app used to exercise the built `pyloros` CLI against a normal project layout.
 
-Dependencies are pinned exactly and all declare an `engines.node` range that includes the Node version used for the test, so this fixture is the happy path for the Runtime Contract.
+Dependencies are pinned exactly and all declare an `engines.node` range that includes the Node version used for the test, so this fixture is the happy path for the Runtime Contract. Packages with no usable `engines.node` range are also accepted.
 
 ## Run the built CLI
 
@@ -29,4 +29,4 @@ node src/index.js 1.2.3
 
 ## Testing rejection paths
 
-`debug@4.4.3` declares `engines.node` but depends on `ms`, which declares no `engines.node`. Adding `debug` to `dependencies` makes the resolver reject the tree with the Runtime Contract exit code. Remove it again to return to the happy path.
+`debug@4.4.3` declares `engines.node` and depends on `ms`, which declares none. Because an absent or unusable range is treated as compatible, adding `debug` is accepted.

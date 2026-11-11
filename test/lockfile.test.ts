@@ -56,6 +56,7 @@ test("creates a lockfile from a resolution", () => {
   assert.deepEqual(lockfile.root, {
     dependencies: { a: "1.0.0" },
     optionalDependencies: {},
+    devDependencies: {},
   });
   assert.deepEqual(lockfile.packages["a"], {
     name: "a",

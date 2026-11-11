@@ -366,9 +366,19 @@ async function candidatesFor(
   }
 
   if (contractPassing.length === 0) {
+    if (contractFailures.length > 0) {
+      return {
+        ok: false,
+        failure: { kind: "contract", message: contractMessage(contractFailures) },
+      };
+    }
+
     return {
       ok: false,
-      failure: { kind: "contract", message: contractMessage(contractFailures) },
+      failure: {
+        kind: "resolution",
+        message: conflictMessage(name, constraints, packument),
+      },
     };
   }
 
@@ -590,7 +600,11 @@ export async function resolve(
     steps: 0,
   };
 
-  for (const table of [manifest.dependencies, manifest.optionalDependencies]) {
+  for (const table of [
+    manifest.dependencies,
+    manifest.optionalDependencies,
+    manifest.devDependencies,
+  ]) {
     for (const [name, range] of Object.entries(table)) {
       if (!isValidRange(range)) {
         throw new ResolutionError(

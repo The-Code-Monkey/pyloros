@@ -19,6 +19,7 @@ export interface ProjectManifest {
   version?: string;
   dependencies: Record<string, string>;
   optionalDependencies: Record<string, string>;
+  devDependencies: Record<string, string>;
   peerDependencies: Record<string, string>;
   engines?: { node?: string };
   policy: PylorosPolicy;
@@ -143,10 +144,12 @@ export function parseProjectManifest(directory: string, value: unknown): Project
     value["optionalDependencies"],
     "optionalDependencies",
   );
+  const devDependencies = readStringMap(value["devDependencies"], "devDependencies");
   const peerDependencies = readStringMap(value["peerDependencies"], "peerDependencies");
 
   assertRegistryRanges(dependencies, "dependencies");
   assertRegistryRanges(optionalDependencies, "optionalDependencies");
+  assertRegistryRanges(devDependencies, "devDependencies");
   assertRegistryRanges(peerDependencies, "peerDependencies");
 
   let engines: { node?: string } | undefined;
@@ -172,6 +175,7 @@ export function parseProjectManifest(directory: string, value: unknown): Project
     directory,
     dependencies,
     optionalDependencies,
+    devDependencies,
     peerDependencies,
     policy: readPolicy(value["pyloros"]),
     ...(typeof name === "string" ? { name } : {}),

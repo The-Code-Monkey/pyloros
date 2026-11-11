@@ -13,7 +13,7 @@ The registry name that identifies a package. One identity has at most one versio
 _Avoid_: module, dependency, library
 
 **Runtime Contract**:
-The requirement that a package declares a Node.js version range that includes the exact running version.
+The rule that a declared Node.js version range must include the exact running version. A package with no usable declared range is treated as compatible.
 _Avoid_: engine check, compatibility check
 
 **Clean Resolution Set**:

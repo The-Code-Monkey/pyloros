@@ -63,6 +63,7 @@ export interface LockfilePackage {
 export interface LockfileRoot {
   dependencies: Record<string, string>;
   optionalDependencies: Record<string, string>;
+  devDependencies: Record<string, string>;
 }
 
 export interface Lockfile {
@@ -214,6 +215,7 @@ export function createLockfile(
     root: {
       dependencies: { ...manifest.dependencies },
       optionalDependencies: { ...manifest.optionalDependencies },
+      devDependencies: { ...manifest.devDependencies },
     },
     advisories: resolution.advisories,
     packages,
@@ -498,6 +500,10 @@ export function parseLockfile(value: unknown): Lockfile {
       optionalDependencies: requiredStringMap(
         root["optionalDependencies"],
         "root.optionalDependencies",
+      ),
+      devDependencies: requiredStringMap(
+        root["devDependencies"],
+        "root.devDependencies",
       ),
     },
     advisories: parseAdvisorySnapshot(record["advisories"]),

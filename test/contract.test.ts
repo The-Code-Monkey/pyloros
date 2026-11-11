@@ -12,13 +12,31 @@ test("accepts a manifest whose engines range includes the running version", () =
   assert.equal(violation, undefined);
 });
 
-test("rejects a manifest without engines.node", () => {
+test("treats a manifest without engines.node as compatible", () => {
   const violation = checkRuntimeContract(
     "pkg",
     version("pkg", "1.0.0", { engines: {} }),
     "24.14.1",
   );
-  assert.equal(violation?.reason, "missing-engines");
+  assert.equal(violation, undefined);
+});
+
+test("treats an empty engines.node range as compatible", () => {
+  const violation = checkRuntimeContract(
+    "pkg",
+    version("pkg", "1.0.0", { engines: { node: "  " } }),
+    "24.14.1",
+  );
+  assert.equal(violation, undefined);
+});
+
+test("treats an unusable engines.node range as compatible", () => {
+  const violation = checkRuntimeContract(
+    "pkg",
+    version("pkg", "1.0.0", { engines: { node: "not a range" } }),
+    "24.14.1",
+  );
+  assert.equal(violation, undefined);
 });
 
 test("rejects a manifest whose engines range excludes the running version", () => {
@@ -29,13 +47,4 @@ test("rejects a manifest whose engines range excludes the running version", () =
   );
   assert.equal(violation?.reason, "excluded-version");
   assert.equal(violation?.range, ">=99");
-});
-
-test("rejects an invalid engines range", () => {
-  const violation = checkRuntimeContract(
-    "pkg",
-    version("pkg", "1.0.0", { engines: { node: "not a range" } }),
-    "24.14.1",
-  );
-  assert.equal(violation?.reason, "invalid-range");
 });

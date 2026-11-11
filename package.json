@@ -14,10 +14,11 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && node scripts/copy-vendor.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test test/*.test.ts",
-    "prepare": "npm run build"
+    "build": "node node_modules/typescript/bin/tsc -p tsconfig.json && node scripts/copy-vendor.mjs",
+    "typecheck": "node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "test": "node --test test/*.test.ts test/integration/*.test.ts",
+    "prepare": "npm run build",
+    "self-host": "node scripts/self-host-check.mjs"
   },
   "pyloros": {
     "allowScripts": {},
@@ -26,6 +27,6 @@
   },
   "devDependencies": {
     "@types/node": "26.6.6",
-    "typescript": "5.9.3"
+    "typescript": "7.0.2"
   }
 }

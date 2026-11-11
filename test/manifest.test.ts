@@ -83,3 +83,21 @@ test("parses policy entries", () => {
   assert.deepEqual(manifest.policy.pins, { other: "2.0.0" });
   assert.deepEqual(manifest.policy.allowAdvisories, ["GHSA-xxxx"]);
 });
+
+test("parses devDependencies", () => {
+  const manifest = parseProjectManifest(".", {
+    devDependencies: { tool: "1.0.0" },
+  });
+
+  assert.deepEqual(manifest.devDependencies, { tool: "1.0.0" });
+});
+
+test("rejects non-registry devDependency specifiers", () => {
+  assert.throws(
+    () =>
+      parseProjectManifest(".", {
+        devDependencies: { tool: "file:../tool" },
+      }),
+    ManifestError,
+  );
+});
