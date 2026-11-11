@@ -1,6 +1,7 @@
 import { ExitCode } from "../core/exit-codes.ts";
 import { LockfileError, UsageError } from "../core/errors.ts";
 import { readLockfile } from "../core/lockfile.ts";
+import { lifecycleScripts } from "../gate/lifecycle.ts";
 import { parseFlags, printJson } from "./shared.ts";
 
 export async function whyCommand(
@@ -32,7 +33,7 @@ export async function whyCommand(
   const overrides = lockfile.overrides.filter((override) => override.name === name);
   const advisories = lockfile.advisories.entries[identity] ?? [];
   const allowedScripts = pkg.gate?.allowedScripts ?? [];
-  const blockedScripts = (pkg.scripts ?? []).filter(
+  const blockedScripts = lifecycleScripts(pkg.scripts ?? []).filter(
     (script) => !allowedScripts.includes(script),
   );
 
