@@ -56,10 +56,12 @@ export function frozenDrifts(
   const expectedRoot = canonicalJson({
     dependencies: manifest.dependencies,
     optionalDependencies: manifest.optionalDependencies,
+    devDependencies: manifest.devDependencies,
   });
   const lockedRoot = canonicalJson({
     dependencies: lockfile.root.dependencies,
     optionalDependencies: lockfile.root.optionalDependencies,
+    devDependencies: lockfile.root.devDependencies,
   });
 
   if (expectedRoot !== lockedRoot) {
@@ -70,6 +72,7 @@ export function frozenDrifts(
   }
 
   for (const [name, range] of Object.entries({
+    ...manifest.devDependencies,
     ...manifest.optionalDependencies,
     ...manifest.dependencies,
   })) {

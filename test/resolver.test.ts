@@ -236,3 +236,18 @@ test("prefers a locked version when it still satisfies the ranges", async () => 
 
   assert.deepEqual(identities(result.packages), ["a@1.0.0"]);
 });
+
+test("resolves devDependencies alongside runtime dependencies", async () => {
+  const registry = new FakeRegistry([
+    packageDoc("a", [version("a", "1.0.0")]),
+    packageDoc("dev", [version("dev", "2.0.0")]),
+  ]);
+  const manifest = {
+    ...projectManifest({ a: "1.0.0" }),
+    devDependencies: { dev: "2.0.0" },
+  };
+
+  const result = await resolve(manifest, registry, { nodeVersion: NODE });
+
+  assert.deepEqual(identities(result.packages), ["a@1.0.0", "dev@2.0.0"]);
+});

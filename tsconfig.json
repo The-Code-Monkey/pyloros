@@ -18,6 +18,11 @@
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true,
     "skipLibCheck": true,
+    "baseUrl": ".",
+    "typeRoots": ["./types"],
+    "paths": {
+      "undici-types": ["./types/undici-types"]
+    },
     "types": ["node"]
   },
   "include": ["src/**/*.ts"]

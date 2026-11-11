@@ -49,7 +49,7 @@ export async function writeRawManifest(
 
 function table(
   manifest: Record<string, unknown>,
-  key: "dependencies" | "optionalDependencies",
+  key: "dependencies" | "optionalDependencies" | "devDependencies",
 ): Record<string, string> {
   const value = manifest[key];
 
@@ -88,6 +88,13 @@ export function setDependency(
   if (Object.keys(optional).length === 0 && manifest["optionalDependencies"] !== undefined) {
     manifest["optionalDependencies"] = optional;
   }
+
+  const dev = table(manifest, "devDependencies");
+  delete dev[name];
+
+  if (manifest["devDependencies"] !== undefined) {
+    manifest["devDependencies"] = dev;
+  }
 }
 
 export function removeDependency(
@@ -96,7 +103,8 @@ export function removeDependency(
 ): string | undefined {
   const dependencies = table(manifest, "dependencies");
   const optional = table(manifest, "optionalDependencies");
-  const previous = dependencies[name] ?? optional[name];
+  const dev = table(manifest, "devDependencies");
+  const previous = dependencies[name] ?? optional[name] ?? dev[name];
 
   if (previous === undefined) {
     return undefined;
@@ -104,10 +112,15 @@ export function removeDependency(
 
   delete dependencies[name];
   delete optional[name];
+  delete dev[name];
   manifest["dependencies"] = dependencies;
 
   if (manifest["optionalDependencies"] !== undefined) {
     manifest["optionalDependencies"] = optional;
+  }
+
+  if (manifest["devDependencies"] !== undefined) {
+    manifest["devDependencies"] = dev;
   }
 
   return previous;

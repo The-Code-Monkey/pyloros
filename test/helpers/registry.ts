@@ -54,6 +54,7 @@ export function projectManifest(
     directory: ".",
     dependencies,
     optionalDependencies,
+    devDependencies: {},
     peerDependencies: {},
     policy: { allowScripts: {}, pins: {}, allowAdvisories: [] },
   };

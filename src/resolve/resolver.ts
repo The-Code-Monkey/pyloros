@@ -590,7 +590,11 @@ export async function resolve(
     steps: 0,
   };
 
-  for (const table of [manifest.dependencies, manifest.optionalDependencies]) {
+  for (const table of [
+    manifest.dependencies,
+    manifest.optionalDependencies,
+    manifest.devDependencies,
+  ]) {
     for (const [name, range] of Object.entries(table)) {
       if (!isValidRange(range)) {
         throw new ResolutionError(

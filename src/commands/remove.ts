@@ -44,6 +44,7 @@ export async function removeCommand(
     const restored = await readRawManifest(directory);
     restored["dependencies"] = original["dependencies"];
     restored["optionalDependencies"] = original["optionalDependencies"];
+    restored["devDependencies"] = original["devDependencies"];
     await writeRawManifest(directory, restored);
     throw error;
   }
