@@ -1,0 +1,9 @@
+{
+  "name": "semver",
+  "version": "7.8.6",
+  "description": "Vendored node-semver used by Pyloros. Not a runtime dependency.",
+  "license": "ISC",
+  "type": "commonjs",
+  "main": "index.js",
+  "private": true
+}

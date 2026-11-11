@@ -1,0 +1,24 @@
+{
+  "name": "pyloros-fixture-real-world",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Real-world fixture app for exercising the built pyloros CLI.",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "commander": "15.1.0",
+    "kleur": "4.1.5",
+    "semver": "7.8.6"
+  },
+  "pyloros": {
+    "allowScripts": {},
+    "pins": {},
+    "allowAdvisories": []
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "pyloros",
+  "version": "0.0.0",
+  "description": "Security-first npm client: one version per package, advisory-aware resolution, no lifecycle scripts by default.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "pyloros": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-vendor.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test test/*.test.ts",
+    "prepare": "npm run build"
+  },
+  "pyloros": {
+    "allowScripts": {},
+    "pins": {},
+    "allowAdvisories": []
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "typescript": "5.9.3"
+  }
+}
