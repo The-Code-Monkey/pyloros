@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { GateError, ProvenanceError } from "../core/errors.ts";
 import type { LockfilePackage, LockfileProvenance } from "../core/lockfile.ts";
 import type { PylorosPolicy } from "../core/manifest.ts";
+import { lifecycleScripts } from "./lifecycle.ts";
 import { absentProvenanceVerifier } from "./provenance.ts";
 import { BubblewrapSandbox } from "./sandbox.ts";
 import type {
@@ -13,7 +14,6 @@ import type {
   SandboxRunner,
 } from "./types.ts";
 
-const LIFECYCLE_SCRIPTS = ["preinstall", "install", "postinstall"] as const;
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 
 export interface GateRunOptions {
@@ -35,11 +35,6 @@ function scriptEnvironment(): Record<string, string> {
     LANG: "C.UTF-8",
     LC_ALL: "C.UTF-8",
   };
-}
-
-function lifecycleScripts(pkg: LockfilePackage): string[] {
-  const declared = pkg.scripts ?? [];
-  return LIFECYCLE_SCRIPTS.filter((name) => declared.includes(name));
 }
 
 export async function runGate(options: GateRunOptions): Promise<GateReport> {
@@ -95,7 +90,7 @@ export async function runGate(options: GateRunOptions): Promise<GateReport> {
     }
 
     const allow = options.policy.allowScripts[identity];
-    const declared = lifecycleScripts(pkg);
+    const declared = lifecycleScripts(pkg.scripts ?? []);
     const native = existsSync(join(directory, "binding.gyp"));
     const scripts: GateScriptDecision[] = [];
 

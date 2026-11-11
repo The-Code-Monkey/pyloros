@@ -1,9 +1,8 @@
 import { ExitCode } from "../core/exit-codes.ts";
 import { LockfileError, UsageError } from "../core/errors.ts";
 import { readLockfile } from "../core/lockfile.ts";
+import { lifecycleScripts } from "../gate/lifecycle.ts";
 import { parseFlags, printJson } from "./shared.ts";
-
-const LIFECYCLE = ["preinstall", "install", "postinstall"];
 
 export async function auditCommand(
   args: readonly string[],
@@ -29,8 +28,8 @@ export async function auditCommand(
     .sort((left, right) => left.name.localeCompare(right.name))
     .map((pkg) => {
       const allowed = pkg.gate?.allowedScripts ?? [];
-      const blockedScripts = (pkg.scripts ?? []).filter(
-        (script) => LIFECYCLE.includes(script) && !allowed.includes(script),
+      const blockedScripts = lifecycleScripts(pkg.scripts ?? []).filter(
+        (script) => !allowed.includes(script),
       );
 
       return {
