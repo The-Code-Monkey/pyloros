@@ -13,7 +13,6 @@ import {
   readLockfile,
   writeLockfile,
 } from "../src/core/lockfile.ts";
-import { currentNodeAbi, currentNodeVersion } from "../src/core/tool.ts";
 import {
   createInstaller,
   type InstallIntent,
@@ -24,9 +23,13 @@ import type { Packument, VersionManifest } from "../src/registry/packument.ts";
 import { sha512Sri } from "../src/registry/integrity.ts";
 import type { ProvenanceVerifier, SandboxRunner } from "../src/gate/types.ts";
 import { ContentStore } from "../src/store/cas.ts";
-import { currentPlatform } from "../src/store/platform.ts";
+import type { Platform } from "../src/store/platform.ts";
 import { FIXED_SNAPSHOT, FakeAdvisories } from "./helpers/advisories.ts";
 import { makeTar } from "./helpers/tar.ts";
+
+const PLATFORM: Platform = { os: "linux", cpu: "x64", libc: "glibc" };
+const NODE_VERSION = "24.14.1";
+const NODE_ABI = "137";
 
 interface Entry {
   name: string;
@@ -176,12 +179,12 @@ async function runInstall(
     provenance: settings.provenance,
     sandbox: settings.sandbox,
     store: new ContentStore(join(settings.directory, "store")),
-    platform: currentPlatform(),
+    platform: PLATFORM,
     clock: settings.now,
-    concurrency: 8,
+    concurrency: 4,
     allowAdvisories: false,
-    nodeVersion: currentNodeVersion(),
-    nodeAbi: currentNodeAbi(),
+    nodeVersion: NODE_VERSION,
+    nodeAbi: NODE_ABI,
   });
   const existing = await readLockfile(settings.directory);
   const intent: InstallIntent =

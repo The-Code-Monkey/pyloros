@@ -169,6 +169,8 @@ async function materializeFixture(
     store: new ContentStore(join(projectDirectory, "store")),
     platform: PLATFORM,
     policy: policy(options.allowScripts),
+    concurrency: 4,
+    now: () => new Date(FIXED_SNAPSHOT),
     ...(options.provenance === undefined ? {} : { provenance: options.provenance }),
     ...(options.sandbox === undefined ? {} : { sandbox: options.sandbox }),
   });

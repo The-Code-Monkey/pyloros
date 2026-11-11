@@ -94,6 +94,8 @@ test(
         provenance: new VerifiedProvenance(),
         sandbox: new BubblewrapSandbox(),
         scriptTimeoutMs: 30_000,
+        concurrency: 4,
+        now: () => new Date(FIXED_SNAPSHOT),
       });
 
       assert.deepEqual(result.gate.packages[0]?.scripts, [
