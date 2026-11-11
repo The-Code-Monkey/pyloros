@@ -17,10 +17,10 @@ import {
 } from "../src/install/dependency-change.ts";
 import { readRawManifest } from "../src/install/manifest-edit.ts";
 import type {
-  InstallProjectOptions,
-  InstallProjectResult,
+  InstallIntent,
+  InstallResult,
   Registry,
-} from "../src/install/install.ts";
+} from "../src/install/installer.ts";
 import type { Packument, VersionManifest } from "../src/registry/packument.ts";
 import { FIXED_SNAPSHOT } from "./helpers/advisories.ts";
 
@@ -75,7 +75,7 @@ function lockfile(
   };
 }
 
-function installed(lockfile: Lockfile): InstallProjectResult {
+function installed(lockfile: Lockfile): InstallResult {
   return {
     mode: "re-resolve",
     lockfile,
@@ -90,7 +90,7 @@ function installed(lockfile: Lockfile): InstallProjectResult {
 }
 
 interface Recorder {
-  options?: InstallProjectOptions;
+  intent?: InstallIntent;
   calls: number;
 }
 
@@ -98,14 +98,14 @@ function successfulInstall(
   packages: Record<string, string>,
   recorder: Recorder = { calls: 0 },
 ): InstallRunner {
-  return async (options) => {
+  return async (intent) => {
     recorder.calls += 1;
-    recorder.options = options;
-    const manifest = (await readRawManifest(options.directory)) as {
+    recorder.intent = intent;
+    const manifest = (await readRawManifest(intent.directory)) as {
       dependencies?: Record<string, string>;
     };
     const lockfileValue = lockfile(packages, manifest.dependencies ?? {});
-    await writeLockfile(options.directory, lockfileValue);
+    await writeLockfile(intent.directory, lockfileValue);
     return installed(lockfileValue);
   };
 }
@@ -146,7 +146,7 @@ test("add saves an exact tag version and syncs the lockfile root", async () => {
 
     assert.equal(result.version, "1.2.3");
     assert.equal(result.saved, "1.2.3");
-    assert.deepEqual(recorder.options?.preferred, {});
+    assert.deepEqual(recorder.intent?.preferred, {});
 
     const manifest = (await readRawManifest(directory)) as {
       dependencies: Record<string, string>;
@@ -300,7 +300,47 @@ test("scoped update preserves other Pins", async () => {
       { install: successfulInstall({ a: "2.0.0", b: "1.0.0" }, recorder) },
     );
 
-    assert.deepEqual(recorder.options?.preferred, { b: "1.0.0" });
+    assert.deepEqual(recorder.intent?.preferred, { b: "1.0.0" });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("transaction calls the install runner with an explicit intent", async () => {
+  const directory = await project({ a: "1.0.0", b: "1.0.0" });
+  await writeLockfile(
+    directory,
+    lockfile({ a: "1.0.0", b: "1.0.0" }, { a: "1.0.0", b: "1.0.0" }),
+  );
+  const intents: unknown[] = [];
+
+  try {
+    await applyDependencyChange(
+      directory,
+      { kind: "update", name: "a" },
+      {
+        install: async (intent) => {
+          intents.push(intent);
+          const manifest = (await readRawManifest(directory)) as {
+            dependencies?: Record<string, string>;
+          };
+          const value = lockfile(
+            { a: "2.0.0", b: "1.0.0" },
+            manifest.dependencies ?? {},
+          );
+          await writeLockfile(directory, value);
+          return installed(value);
+        },
+      },
+    );
+
+    assert.deepEqual(intents, [
+      {
+        kind: "re-resolve",
+        directory,
+        preferred: { b: "1.0.0" },
+      },
+    ]);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

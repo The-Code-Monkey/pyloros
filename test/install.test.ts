@@ -13,10 +13,18 @@ import {
   readLockfile,
   writeLockfile,
 } from "../src/core/lockfile.ts";
-import { installProject, type Registry } from "../src/install/install.ts";
+import { currentNodeAbi, currentNodeVersion } from "../src/core/tool.ts";
+import {
+  createInstaller,
+  type InstallIntent,
+  type InstallResult,
+  type Registry,
+} from "../src/install/installer.ts";
 import type { Packument, VersionManifest } from "../src/registry/packument.ts";
 import { sha512Sri } from "../src/registry/integrity.ts";
 import type { ProvenanceVerifier, SandboxRunner } from "../src/gate/types.ts";
+import { ContentStore } from "../src/store/cas.ts";
+import { currentPlatform } from "../src/store/platform.ts";
 import { FIXED_SNAPSHOT, FakeAdvisories } from "./helpers/advisories.ts";
 import { makeTar } from "./helpers/tar.ts";
 
@@ -159,12 +167,39 @@ function options(
   };
 }
 
+async function runInstall(
+  settings: ReturnType<typeof options>,
+): Promise<InstallResult> {
+  const installer = createInstaller({
+    registry: settings.registry,
+    advisoryProvider: settings.advisoryProvider,
+    provenance: settings.provenance,
+    sandbox: settings.sandbox,
+    store: new ContentStore(join(settings.directory, "store")),
+    platform: currentPlatform(),
+    clock: settings.now,
+    concurrency: 8,
+    allowAdvisories: false,
+    nodeVersion: currentNodeVersion(),
+    nodeAbi: currentNodeAbi(),
+  });
+  const existing = await readLockfile(settings.directory);
+  const intent: InstallIntent =
+    existing === undefined
+      ? { kind: "resolve", directory: settings.directory }
+      : settings.reResolve === true
+        ? { kind: "re-resolve", directory: settings.directory }
+        : { kind: "frozen", directory: settings.directory };
+
+  return installer.install(intent);
+}
+
 test("resolves, writes the lockfile, and materializes", async () => {
   const directory = await project({ alpha: "1.0.0" });
   const alpha = entry("alpha", "alpha");
 
   try {
-    const result = await installProject(
+    const result = await runInstall(
       options(directory, [alpha], { provenance: new FakeProvenance("verified") }),
     );
 
@@ -188,9 +223,9 @@ test("a second install is frozen and leaves the lockfile untouched", async () =>
   const alpha = entry("alpha", "alpha");
 
   try {
-    await installProject(options(directory, [alpha]));
+    await runInstall(options(directory, [alpha]));
     const before = serializeLockfile((await readLockfile(directory))!);
-    const result = await installProject(options(directory, [alpha]));
+    const result = await runInstall(options(directory, [alpha]));
 
     assert.equal(result.mode, "frozen");
     assert.equal(result.wroteLockfile, false);
@@ -205,13 +240,13 @@ test("rejects a lockfile resolved for another Node version", async () => {
   const alpha = entry("alpha", "alpha");
 
   try {
-    await installProject(options(directory, [alpha]));
+    await runInstall(options(directory, [alpha]));
     const lockfile = (await readLockfile(directory))!;
     lockfile.node = { version: "0.0.0", abi: lockfile.node.abi };
     await writeLockfile(directory, lockfile);
 
     await assert.rejects(
-      installProject(options(directory, [alpha])),
+      runInstall(options(directory, [alpha])),
       RuntimeContractError,
     );
   } finally {
@@ -224,7 +259,7 @@ test("rejects root drift on a frozen install", async () => {
   const alpha = entry("alpha", "alpha");
 
   try {
-    await installProject(options(directory, [alpha]));
+    await runInstall(options(directory, [alpha]));
     await writeFile(
       join(directory, "package.json"),
       `${JSON.stringify(
@@ -240,7 +275,7 @@ test("rejects root drift on a frozen install", async () => {
     );
 
     await assert.rejects(
-      installProject(options(directory, [alpha])),
+      runInstall(options(directory, [alpha])),
       FrozenDriftError,
     );
   } finally {
@@ -253,8 +288,8 @@ test("re-resolves when asked", async () => {
   const alpha = entry("alpha", "alpha");
 
   try {
-    await installProject(options(directory, [alpha]));
-    const result = await installProject(
+    await runInstall(options(directory, [alpha]));
+    const result = await runInstall(
       options(directory, [alpha], { reResolve: true }),
     );
 
@@ -289,7 +324,7 @@ test("does not persist Gate records when a script fails", async () => {
     );
 
     await assert.rejects(
-      installProject(
+      runInstall(
         options(directory, [alpha], {
           provenance: new FakeProvenance("verified"),
           sandbox: new FakeSandbox(1),
@@ -325,7 +360,7 @@ test("fails a frozen install when the attestation digest changed", async () => {
         2,
       )}\n`,
     );
-    await installProject(
+    await runInstall(
       options(directory, [alpha], {
         provenance: new FakeProvenance("verified", "old-digest"),
         sandbox: new FakeSandbox(0),
@@ -333,7 +368,7 @@ test("fails a frozen install when the attestation digest changed", async () => {
     );
 
     await assert.rejects(
-      installProject(
+      runInstall(
         options(directory, [alpha], {
           provenance: new FakeProvenance("verified", "new-digest"),
           sandbox: new FakeSandbox(0),

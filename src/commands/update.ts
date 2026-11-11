@@ -1,6 +1,7 @@
 import { ExitCode } from "../core/exit-codes.ts";
 import { UsageError } from "../core/errors.ts";
 import { applyDependencyChange } from "../install/dependency-change.ts";
+import { createCommandInstaller } from "./environment.ts";
 import { parseFlags, printJson, selectorFor } from "./shared.ts";
 
 export async function updateCommand(
@@ -19,16 +20,17 @@ export async function updateCommand(
 
   const allowAdvisories = flags.booleans.has("--allow-advisories");
   const name = flags.positionals[0];
+  const { installer } = createCommandInstaller({
+    allowAdvisories,
+    fallback: selectorFor({
+      select: flags.values.get("--select"),
+      allowAdvisories,
+    }),
+  });
   const result = await applyDependencyChange(
     directory,
     name === undefined ? { kind: "update" } : { kind: "update", name },
-    {
-      allowAdvisories,
-      fallback: selectorFor({
-        select: flags.values.get("--select"),
-        allowAdvisories,
-      }),
-    },
+    { install: (intent) => installer.install(intent) },
   );
 
   if (json) {
