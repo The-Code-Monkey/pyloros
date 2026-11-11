@@ -26,12 +26,8 @@ import type {
   ProvenanceVerifier,
   SandboxRunner,
 } from "../gate/types.ts";
-import { ContentStore } from "./cas.ts";
-import {
-  currentPlatform,
-  matchesPlatform,
-  type Platform,
-} from "./platform.ts";
+import type { ContentStore } from "./cas.ts";
+import { matchesPlatform, type Platform } from "./platform.ts";
 
 export interface TarballSource {
   getTarball(manifest: VersionManifest): Promise<Uint8Array>;
@@ -41,8 +37,8 @@ export interface MaterializeOptions {
   projectDirectory: string;
   lockfile: Lockfile;
   registry: TarballSource;
-  store?: ContentStore;
-  platform?: Platform;
+  store: ContentStore;
+  platform: Platform;
   concurrency?: number;
   now?: () => Date;
   policy?: PylorosPolicy;
@@ -247,8 +243,8 @@ export async function recoverInterrupted(projectDirectory: string): Promise<void
 export async function materialize(
   options: MaterializeOptions,
 ): Promise<MaterializeResult> {
-  const platform = options.platform ?? currentPlatform();
-  const store = options.store ?? new ContentStore();
+  const platform = options.platform;
+  const store = options.store;
   const now = options.now ?? (() => new Date());
   const packages = Object.values(options.lockfile.packages).sort((left, right) =>
     left.name.localeCompare(right.name),
